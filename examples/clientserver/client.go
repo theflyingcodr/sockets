@@ -34,28 +34,28 @@ func SetupClient() *sockets.Client {
 		return msg.NoContent()
 	})
 
-	if err := client.JoinChannel(u.String(), "test-channel", h); err != nil {
-		log.Fatal().Err(err).Msg("CLIENT failed to join channel")
-	}
-	go func() {
-		i := 0
-		for {
-			log.Debug().Msg("sending messages")
-			time.Sleep(time.Millisecond * 500)
-
-			if err := client.Publish("test-channel", "test", TestMessage{
-				When: time.Now().UTC(),
-				Test: fmt.Sprintf("%d", i),
-			}, h); err != nil {
-				log.Fatal().Err(err).Msg("failed to publish")
-			}
-
-			if err := client.Publish("test-channel", sockets.MessageGetInfo, nil, h); err != nil {
-				log.Fatal().Err(err).Msg("failed to publish")
-			}
-			i++
+	for i := 0; i < 999; i++ {
+		if err := client.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h); err != nil {
+			log.Fatal().Err(err).Msg("CLIENT failed to join channel")
 		}
-	}()
+		go func(id int) {
+			for {
+				log.Debug().Msg("sending messages")
+				time.Sleep(time.Millisecond * 500)
+
+				if err := client.Publish(fmt.Sprintf("test-channel-%d", id), "test", TestMessage{
+					When: time.Now().UTC(),
+					Test: fmt.Sprintf("%d", id),
+				}, h); err != nil {
+					log.Err(err).Msg("failed to publish")
+				}
+
+				if err := client.Publish(fmt.Sprintf("test-channel-%d", id), sockets.MessageGetInfo, nil, h); err != nil {
+					log.Err(err).Msg("failed to publish")
+				}
+			}
+		}(i)
+	}
 
 	return client
 }

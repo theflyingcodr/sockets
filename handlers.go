@@ -3,11 +3,14 @@ package sockets
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
 type HandlerFunc func(ctx context.Context, msg *Message) (*Message, error)
+
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
 type ErrorHandlerFunc func(msg Message, e error) *ErrorMessage
 
@@ -87,4 +90,34 @@ func (c *Client) joinSuccess(ctx context.Context, msg *Message) (*Message, error
 		ClientID:  msg.clientID,
 	}
 	return msg.NoContent()
+}
+
+func Timeout(next HandlerFunc) HandlerFunc {
+	return func(ctx context.Context, msg *Message) (*Message, error) {
+		c, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		return next(c, msg)
+	}
+}
+
+func PanicHandler(next HandlerFunc) HandlerFunc {
+	return func(ctx context.Context, msg *Message) (*Message, error) {
+		defer func() {
+			if err := recover(); err != nil {
+				fmt.Println("hitting panic handler")
+				log.Error().Msgf("panic occurred:", err)
+			}
+		}()
+		return next(ctx, msg)
+	}
+}
+
+// execMiddlewareChain builds the global middleware chain recursively, functions are first class.
+func execMiddlewareChain(f HandlerFunc, m []MiddlewareFunc) HandlerFunc {
+	// if our chain is done, use the original handlerfunc
+	if len(m) == 0 {
+		return f
+	}
+	// otherwise nest the handlerfuncs
+	return m[0](execMiddlewareChain(f, m[1:]))
 }

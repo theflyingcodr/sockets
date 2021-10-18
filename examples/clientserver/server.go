@@ -3,6 +3,7 @@ package clientserver
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -41,7 +42,12 @@ func SetupServer() *sockets.SocketServer {
 			}
 			log.Info().Msgf("%+v", req)
 			resp := msg.NewFrom("test.resp")
-			return resp, errors.New("I failed so bad")
+			// setup a random failure
+			var err error
+			if rand.Int()%5 == 0 {
+				err = errors.New("test handler failed")
+			}
+			return resp, err
 		})
 	return s
 }

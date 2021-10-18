@@ -25,6 +25,7 @@ type SocketServer struct {
 	channels           map[string]*Channel
 	broadcastListeners map[string]HandlerFunc
 	directListeners    map[string]HandlerFunc
+	middleware         []MiddlewareFunc
 	errHandler         ErrorHandlerFunc
 	channelCloser      chan string
 	unregister         chan unregister
@@ -44,6 +45,7 @@ func NewSocketServer() *SocketServer {
 		channels:           make(map[string]*Channel, 0),
 		broadcastListeners: make(map[string]HandlerFunc, 0),
 		directListeners:    make(map[string]HandlerFunc, 0),
+		middleware:         make([]MiddlewareFunc, 0),
 		errHandler:         defaultServerErrorHandler,
 		channelCloser:      make(chan string),
 		unregister:         make(chan unregister, 1),
@@ -204,7 +206,7 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 			continue
 		}
 		log.Debug().Msgf("executing handler for message %s", m.key)
-		resp, err := hndlr(ctx, m)
+		resp, err := execMiddlewareChain(hndlr, s.middleware)(ctx, m)
 		if err != nil {
 			errMsg := s.errHandler(*m, err)
 			if errMsg == nil {
@@ -287,6 +289,16 @@ func (s *SocketServer) BroadcastDirect(clientID string, msg *Message) {
 		ID:  clientID,
 		msg: msg,
 	}
+}
+
+// WithMiddleware will append the middleware funcs to any already registered middleware functions.
+// When adding middleware, it is recommended to always add a PanicHandler first as this will ensure your
+// application has the best chance of recovering. There is a default panic handler available under sockets.PanicHandler.
+func (s *SocketServer) WithMiddleware(mws ...MiddlewareFunc) *SocketServer {
+	for _, mw := range mws {
+		s.middleware = append(s.middleware, mw)
+	}
+	return s
 }
 
 func (s *SocketServer) info() *info {

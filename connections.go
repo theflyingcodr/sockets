@@ -67,6 +67,7 @@ type clientConnection struct {
 	url             string
 	ws              *websocket.Conn
 	listeners       map[string]HandlerFunc
+	mw              []MiddlewareFunc
 	errHandler      ClientErrorHandler
 	send            chan sendMsg
 	done            chan struct{}
@@ -139,20 +140,20 @@ func (c *clientConnection) writer() {
 			}
 			if body["type"] == MessageError {
 				var errMsg *ErrorMessage
-				if json.Unmarshal(bb, &errMsg); err != nil {
+				if err := json.Unmarshal(bb, &errMsg); err != nil {
 					continue
 				}
 				c.errHandler(errMsg)
 				continue
 			}
 			var msg *Message
-			if json.Unmarshal(bb, &msg); err != nil {
+			if err := json.Unmarshal(bb, &msg); err != nil {
 				log.Error().Err(err).Msg("unknown message type received")
 				continue
 			}
 			ctx := context.Background()
 			log.Debug().
-				Str("ChannelID", msg.channelID).
+				Str("channelID", msg.channelID).
 				Str("clientID", msg.clientID).
 				Str("type", msg.key).
 				Msg("new message received")
@@ -161,7 +162,8 @@ func (c *clientConnection) writer() {
 				log.Info().Msgf("no handler found for message type '%s'", msg.key)
 				continue
 			}
-			resp, err := fn(ctx, msg)
+			// exec middleware and then handler.
+			resp, err := execMiddlewareChain(fn, c.mw)(ctx, msg)
 			if err != nil {
 				c.errHandler(resp.ToError(nil))
 				continue

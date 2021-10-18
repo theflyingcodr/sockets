@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/theflyingcodr/sockets"
 	"github.com/theflyingcodr/sockets/examples/clientserver"
 )
 
@@ -27,8 +28,14 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
+	// setup the socket server
 	s := clientserver.SetupServer()
 	defer s.Close()
+
+	// add middleware, with panic going first
+	s.WithMiddleware(sockets.PanicHandler, sockets.Timeout)
+
+	// this is our websocket endpoint, clients will hit this with the channelID they wish to connect to
 	e.GET("/ws/:channelID", clientserver.WsHandler(s))
 	go func() {
 		log.Err(e.Start(":1323")).Msg("closed echo")

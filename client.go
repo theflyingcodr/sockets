@@ -34,7 +34,7 @@ func defaultOpts() *clientOpts {
 	return &clientOpts{
 		reconnect:         false,
 		reconnectAttempts: 3,
-		reconnectTimeout:  3 * time.Second,
+		reconnectTimeout:  30 * time.Second,
 	}
 }
 
@@ -79,6 +79,7 @@ func WithInfiniteReconnect() ClientOptFunc {
 type Client struct {
 	conn         map[string]*clientConnection
 	listeners    map[string]HandlerFunc
+	middleware   []MiddlewareFunc
 	errHandler   ClientErrorHandler
 	close        chan struct{}
 	done         chan struct{}
@@ -106,6 +107,7 @@ func NewClient(opts ...ClientOptFunc) *Client {
 	cli := &Client{
 		conn:         make(map[string]*clientConnection),
 		listeners:    make(map[string]HandlerFunc),
+		middleware:   make([]MiddlewareFunc, 0),
 		errHandler:   defaultClientErrorHandler,
 		close:        make(chan struct{}, 1),
 		done:         make(chan struct{}, 1),
@@ -128,6 +130,16 @@ func (c *Client) WithJoinRoomSuccessListener(l HandlerFunc) *Client {
 	c.Lock()
 	defer c.Unlock()
 	c.listeners[MessageJoinSuccess] = l
+	return c
+}
+
+// WithMiddleware will append the middleware funcs to any already registered middleware functions.
+// When adding middleware, it is recommended to always add a PanicHandler first as this will ensure your
+// application has the best chance of recovering. There is a default panic handler available under sockets.PanicHandler.
+func (c *Client) WithMiddleware(mws ...MiddlewareFunc) *Client {
+	for _, mw := range mws {
+		c.middleware = append(c.middleware, mw)
+	}
 	return c
 }
 
