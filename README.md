@@ -20,10 +20,10 @@
 
 ## Installation
 
-**go-bk** requires a [supported release of Go](https://golang.org/doc/devel/release.html#policy).
+**sockets** requires a [supported release of Go](https://golang.org/doc/devel/release.html#policy).
 
 ```shell script
-go get -u github.com/libsv/go-bt
+go get -u github.com/theflyingcodr/sockets
 ```
 
 ## Documentation
@@ -36,9 +36,13 @@ For more information around the technical aspects of Bitcoin, please see the upd
 
 ### Features
 
-- Full BIP32 Support
-- Full BIP39 Support
-
+- Client / Server implementations
+- Middleware
+- Error handlers
+- Listener funcs
+- Channel based messaging
+- Client reconnects
+- Broadcasting directly from server to client or to entire channel
 
 <details>
 <summary><strong><code>Library Deployment</code></strong></summary>
@@ -50,50 +54,6 @@ The [.goreleaser.yml](.goreleaser.yml) file is used to configure [goreleaser](ht
 
 Use `make release-snap` to create a snapshot version of the release, and finally `make release` to ship to production.
 </details>
-
-<details>
-<summary><strong><code>Makefile Commands</code></strong></summary>
-<br/>
-
-View all `makefile` commands
-
-```shell script
-make help
-```
-
-List of all current commands:
-
-```text
-all                  Runs multiple commands
-clean                Remove previous builds and any test cache data
-clean-mods           Remove all the Go mod cache
-coverage             Shows the test coverage
-godocs               Sync the latest tag with GoDocs
-help                 Show this help message
-install              Install the application
-install-go           Install the application (Using Native Go)
-lint                 Run the golangci-lint application (install if not found)
-release              Full production release (creates release in Github)
-release              Runs common.release then runs godocs
-release-snap         Test the full release (build binaries)
-release-test         Full production test release (everything except deploy)
-replace-version      Replaces the version in HTML/JS (pre-deploy)
-tag                  Generate a new tag and push (tag version=0.0.0)
-tag-remove           Remove a tag if found (tag-remove version=0.0.0)
-tag-update           Update an existing tag to current commit (tag-update version=0.0.0)
-test                 Runs vet, lint and ALL tests
-test-ci              Runs all tests via CI (exports coverage)
-test-ci-no-race      Runs all tests via CI (no race) (exports coverage)
-test-ci-short        Runs unit tests via CI (exports coverage)
-test-short           Runs vet, lint and tests (excludes integration tests)
-uninstall            Uninstall the application (and remove files)
-update-linter        Update the golangci-lint package (macOS only)
-vet                  Run the Go vet application
-```
-
-</details>
-
-<br/>
 
 ## Examples & Tests
 
