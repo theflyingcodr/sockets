@@ -8,6 +8,34 @@ import (
 	"github.com/google/uuid"
 )
 
+// Client can be used to implement a client which will send and listen
+// to messages on channels.
+type Client interface {
+	WithJoinRoomSuccessListener(l HandlerFunc) Client
+	WithMiddleware(mws ...MiddlewareFunc) Client
+	WithJoinRoomFailedListener(l HandlerFunc) Client
+	WithErrorHandler(e ClientErrorHandlerFunc) Client
+	Close()
+	JoinChannel(host, channelID string, headers http.Header) error
+	LeaveChannel(channelID string, headers http.Header)
+	RegisterListener(msgType string, fn HandlerFunc) Client
+}
+
+// Request is used to send a message to a channel with a specific key.
+type Request struct {
+	ChannelID  string
+	MessageKey string
+	Body       interface{}
+	Headers    http.Header
+}
+
+// Publisher is used by clients to send messages to a server.
+type Publisher interface {
+	Publish(req Request) error
+}
+
+// Message is the underlying message type used by the protocol to
+// transmit metadata and the message bodies.
 type Message struct {
 	CorrelationID string
 	AppID         string
@@ -19,7 +47,7 @@ type Message struct {
 	timestamp     time.Time
 	key           string
 	Headers       http.Header
-	clientID      string
+	ClientID      string
 }
 
 type messageJSON struct {
@@ -36,11 +64,12 @@ type messageJSON struct {
 	Headers       http.Header     `json:"headers"`
 }
 
+// MarshalJSON implements the json Marshaller.
 func (m *Message) MarshalJSON() ([]byte, error) {
 	return json.Marshal(messageJSON{
 		CorrelationID: m.CorrelationID,
 		AppID:         m.AppID,
-		ClientID:      m.clientID,
+		ClientID:      m.ClientID,
 		UserID:        m.UserID,
 		Expiration:    m.Expiration,
 		Body:          m.Body,
@@ -52,6 +81,7 @@ func (m *Message) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON implements the json unmarshaler.
 func (m *Message) UnmarshalJSON(bb []byte) error {
 	var j *messageJSON
 	if err := json.Unmarshal(bb, &j); err != nil {
@@ -68,28 +98,36 @@ func (m *Message) UnmarshalJSON(bb []byte) error {
 	m.timestamp = j.Timestamp
 	m.key = j.Key
 	m.Headers = j.Headers
-	m.clientID = j.ClientID
+	m.ClientID = j.ClientID
 
 	return nil
 }
 
+// ID returns the message unique identifier.
 func (m *Message) ID() string {
 	return m.id
 }
 
+// Timestamp returns the message created at date.
 func (m *Message) Timestamp() time.Time {
 	return m.timestamp
 }
 
+// ChannelID returns the message channelID.
 func (m *Message) ChannelID() string {
 	return m.channelID
+}
+
+// Key returns the message key.
+func (m *Message) Key() string {
+	return m.key
 }
 
 // NewFrom will take a copy of msg and return a new message from it.
 //
 // You can then add a body using the WithBody func and add headers etc.
 func (m *Message) NewFrom(key string) *Message {
-	msg := NewMessage(key, m.clientID, m.channelID)
+	msg := NewMessage(key, m.ClientID, m.channelID)
 	msg.Expiration = m.Expiration
 	msg.UserID = m.UserID
 	msg.AppID = m.AppID
@@ -97,7 +135,7 @@ func (m *Message) NewFrom(key string) *Message {
 	return msg
 }
 
-// NewMessage will create a new message setting
+// NewMessage will create a new message setting.
 func NewMessage(msgType, clientID, channelID string) *Message {
 	return &Message{
 		id:        uuid.NewString(),
@@ -105,7 +143,7 @@ func NewMessage(msgType, clientID, channelID string) *Message {
 		key:       msgType,
 		Headers:   http.Header{},
 		channelID: channelID,
-		clientID:  clientID,
+		ClientID:  clientID,
 	}
 }
 
@@ -143,6 +181,11 @@ type ChannelBroadcaster interface {
 	Broadcast(channelID string, msg *Message)
 }
 
+// ErrorMessage is a message type returned on error, it contains
+// a copy of the original key and body but will have a key of "error"
+// allowing this to be checked for in error handlers.
+// ErrorBody is optional but if supplied can be marhsaled to a struct using Bind()
+// to get the detail of the error.
 type ErrorMessage struct {
 	CorrelationID string          `json:"correlationId"`
 	AppID         string          `json:"appId"`
@@ -156,6 +199,10 @@ type ErrorMessage struct {
 	Headers       http.Header     `json:"headers"`
 }
 
+// ToError will convert a message to an ErrorMessage with an optional
+// err struct supplied containing additional details for the error.
+//
+// There is a default sockets.ErrorDetail struct available, or you can define your own.
 func (m *Message) ToError(err interface{}) *ErrorMessage {
 	bb, _ := json.Marshal(err)
 	e := &ErrorMessage{
@@ -167,7 +214,7 @@ func (m *Message) ToError(err interface{}) *ErrorMessage {
 		OrginBody:     m.Body,
 		ErrorBody:     bb,
 		ChannelID:     m.channelID,
-		ClientID:      m.clientID,
+		ClientID:      m.ClientID,
 		Headers:       m.Headers,
 	}
 	return e

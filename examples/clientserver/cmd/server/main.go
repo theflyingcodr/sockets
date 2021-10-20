@@ -11,7 +11,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/theflyingcodr/sockets"
+	smw "github.com/theflyingcodr/sockets/middleware"
+
 	"github.com/theflyingcodr/sockets/examples/clientserver"
 )
 
@@ -33,7 +34,7 @@ func main() {
 	defer s.Close()
 
 	// add middleware, with panic going first
-	s.WithMiddleware(sockets.PanicHandler, sockets.Timeout)
+	s.WithMiddleware(smw.PanicHandler, smw.Timeout(smw.NewTimeoutConfig()))
 
 	// this is our websocket endpoint, clients will hit this with the channelID they wish to connect to
 	e.GET("/ws/:channelID", clientserver.WsHandler(s))

@@ -1,4 +1,4 @@
-package sockets
+package server
 
 import (
 	"context"
@@ -9,44 +9,106 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+
+	"github.com/theflyingcodr/sockets"
+	"github.com/theflyingcodr/sockets/middleware"
 )
 
-const (
-	MessageJoinSuccess  = "join.success"
-	MessageLeaveSuccess = "leave.success"
-	MessageGetInfo      = "get.info"
-	MessageInfo         = "info"
-	MessageError        = "error"
-)
+type opts struct {
+	writeTimeout    time.Duration
+	pongWait        time.Duration
+	pingPeriod      int64
+	maxMessageBytes int64
+}
 
+func defaultOpts() *opts {
+	return &opts{
+		writeTimeout:    2 * time.Second,
+		pongWait:        60 * time.Second,
+		pingPeriod:      int64((60 * time.Second * 9) / 10),
+		maxMessageBytes: 512,
+	}
+}
+
+// OptFunc defines a functional option to pass to the server at setup time.
+type OptFunc func(c *opts)
+
+// WithWriteTimeout defines the timeout length that the client will wait before
+// failing the write.
+// Default is 60 seconds.
+func WithWriteTimeout(t time.Duration) OptFunc {
+	return func(c *opts) {
+		c.writeTimeout = t
+	}
+}
+
+// WithPongTimeout defines the wait time the client will wait for a pong response
+// from the server.
+// Default is 60 seconds.
+func WithPongTimeout(t time.Duration) OptFunc {
+	return func(c *opts) {
+		c.pongWait = t
+	}
+}
+
+// WithPingPeriod will define the break between pings to the server.
+// This should always be less than PongTimeout.
+func WithPingPeriod(i int64) OptFunc {
+	return func(c *opts) {
+		c.pingPeriod = i
+	}
+}
+
+// WithMaxMessageSize defines the maximum message size in bytes that
+// the client will accept.
+// Default is 512 bytes.
+func WithMaxMessageSize(s int64) OptFunc {
+	return func(c *opts) {
+		c.maxMessageBytes = s
+	}
+}
+
+// SocketServer is a central point that connects peers together.
+// It manages connections and channels as well as sending of messages
+// to peers.
+//
+// It can have listeners setup both for channel broadcast and direct broadcast.
 type SocketServer struct {
 	// maps clientID to roomID for direct client messaging
 	clientConnections  map[string]*connection
-	channels           map[string]*Channel
-	broadcastListeners map[string]HandlerFunc
-	directListeners    map[string]HandlerFunc
-	middleware         []MiddlewareFunc
-	errHandler         ErrorHandlerFunc
+	channels           map[string]*channel
+	broadcastListeners map[string]sockets.HandlerFunc
+	directListeners    map[string]sockets.HandlerFunc
+	middleware         []sockets.MiddlewareFunc
+	errHandler         sockets.ServerErrorHandlerFunc
 	channelCloser      chan string
 	unregister         chan unregister
 	register           chan register
 	channelSender      chan sender
 	directSender       chan sender
-	errs               chan *ErrorMessage
+	errs               chan *sockets.ErrorMessage
 	close              chan struct{}
 	done               chan struct{}
 	i                  *info
+	opts               *opts
 	sync.RWMutex
 }
 
-func NewSocketServer() *SocketServer {
+// NewSocketServer will setup and return a new instance of a SocketServer.
+func NewSocketServer(opts ...OptFunc) *SocketServer {
+	defaults := defaultOpts()
+
+	for _, o := range opts {
+		o(defaults)
+	}
+
 	s := &SocketServer{
-		clientConnections:  make(map[string]*connection, 0),
-		channels:           make(map[string]*Channel, 0),
-		broadcastListeners: make(map[string]HandlerFunc, 0),
-		directListeners:    make(map[string]HandlerFunc, 0),
-		middleware:         make([]MiddlewareFunc, 0),
-		errHandler:         defaultServerErrorHandler,
+		clientConnections:  make(map[string]*connection),
+		channels:           make(map[string]*channel),
+		broadcastListeners: make(map[string]sockets.HandlerFunc),
+		directListeners:    make(map[string]sockets.HandlerFunc),
+		middleware:         make([]sockets.MiddlewareFunc, 0),
+		errHandler:         defaultErrorHandler,
 		channelCloser:      make(chan string),
 		unregister:         make(chan unregister, 1),
 		register:           make(chan register, 1),
@@ -54,7 +116,8 @@ func NewSocketServer() *SocketServer {
 		done:               make(chan struct{}, 1),
 		channelSender:      make(chan sender, 256),
 		directSender:       make(chan sender, 256),
-		errs:               make(chan *ErrorMessage, 256),
+		errs:               make(chan *sockets.ErrorMessage, 256),
+		opts:               defaults,
 	}
 	go s.channelManager()
 	return s
@@ -90,7 +153,7 @@ func (s *SocketServer) channelManager() {
 		case u := <-s.unregister:
 			conn, ok := s.clientConnections[u.clientID]
 			if ok && conn != nil {
-				conn.ws.Close()
+				_ = conn.ws.Close()
 			}
 			delete(s.clientConnections, u.clientID)
 			ch := s.channels[u.channelID]
@@ -109,7 +172,7 @@ func (s *SocketServer) channelManager() {
 			s.clientConnections[u.clientID] = u.connection
 			ch, ok := s.channels[u.channelID]
 			if !ok {
-				ch = NewChannel(u.channelID)
+				ch = newChannel(u.channelID)
 				s.channels[u.channelID] = ch
 			}
 			ch.conns[u.clientID] = u.connection
@@ -120,7 +183,7 @@ func (s *SocketServer) channelManager() {
 		case m := <-s.channelSender:
 			ch := s.channels[m.ID]
 			if ch == nil {
-				log.Debug().Msgf("channel %s is nil")
+				log.Debug().Msgf("channel %s is nil", m.ID)
 				continue
 			}
 			for _, sub := range ch.conns {
@@ -131,7 +194,7 @@ func (s *SocketServer) channelManager() {
 			for i := 0; i < n; i++ {
 				ch := s.channels[m.ID]
 				if ch == nil {
-					log.Debug().Msgf("channel %s is nil")
+					log.Debug().Msgf("channel %s is nil", m.ID)
 					continue
 				}
 				for _, sub := range ch.conns {
@@ -157,63 +220,65 @@ func (s *SocketServer) channelManager() {
 	}
 }
 
-// ListenRoom will start up a new listener for the received connection and roomID.
+// Listen will start up a new listener for the received connection and channelID.
+//
+// This would be called after an Upgrade call in an http handler usually in a go routine.
 func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 	if channelID == "" {
 		return errors.New("channelID cannot be empty")
 	}
-	conn.SetReadLimit(maxMessageSize)
-	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
-	conn.SetPongHandler(func(string) error { conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	conn.SetReadLimit(s.opts.maxMessageBytes)
+	_ = conn.SetReadDeadline(time.Now().Add(s.opts.pongWait))
+	conn.SetPongHandler(func(string) error { _ = conn.SetReadDeadline(time.Now().Add(s.opts.pongWait)); return nil })
 
-	clientId := uuid.NewString()
-	log.Info().Msgf("receiving new connection with clientID %s", clientId)
+	clientID := uuid.NewString()
+	log.Info().Msgf("receiving new connection with clientID %s", clientID)
 	c := &connection{
 		ws:       conn,
 		send:     make(chan interface{}, 1),
-		clientID: clientId,
+		clientID: clientID,
 	}
 	go c.writer()
 	log.Debug().Msgf("adding connection to channelID %s", channelID)
 	s.register <- register{
 		channelID:  channelID,
-		clientID:   clientId,
+		clientID:   clientID,
 		connection: c,
 	}
-	log.Debug().Msgf("client %s added to channelID %s", clientId, channelID)
+	log.Debug().Msgf("client %s added to channelID %s", clientID, channelID)
 	defer func() {
-		s.unregisterClient(channelID, clientId)
-		log.Debug().Msgf("removed clientID %s", clientId)
+		s.unregisterClient(channelID, clientID)
+		log.Debug().Msgf("removed clientID %s", clientID)
 	}()
-	s.BroadcastDirect(clientId, NewMessage(MessageJoinSuccess, clientId, channelID))
+	s.BroadcastDirect(clientID, sockets.NewMessage(sockets.MessageJoinSuccess, clientID, channelID))
 
-	log.Info().Msgf("connection with clientID %s added, listening for messages", clientId)
+	log.Info().Msgf("connection with clientID %s added, listening for messages", clientID)
 
 	for {
-		var m *Message
+		var m *sockets.Message
 		if err := conn.ReadJSON(&m); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				log.Error().Msgf("error: %v", err)
 			}
 			break
 		}
-		m.clientID = clientId
+		m.ClientID = clientID
 		ctx := context.Background()
 		log.Debug().Msg("message received")
-		hndlr, isDirect := s.handler(m.key)
+		hndlr, isDirect := s.handler(m.Key())
 		if hndlr == nil {
-			log.Debug().Msgf("no handler found for message %s", m.key)
+			log.Debug().Msgf("no handler found for message %s", m.Key())
 			continue
 		}
-		log.Debug().Msgf("executing handler for message %s", m.key)
-		resp, err := execMiddlewareChain(hndlr, s.middleware)(ctx, m)
+		log.Debug().Msgf("executing handler for message %s", m.Key())
+		resp, err := middleware.ExecMiddlewareChain(hndlr, s.middleware)(ctx, m)
 		if err != nil {
 			errMsg := s.errHandler(*m, err)
 			if errMsg == nil {
 				continue
 			}
 			s.directSender <- sender{
-				ID:  clientId,
+				ID:  clientID,
 				msg: errMsg,
 			}
 			continue
@@ -226,14 +291,14 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 		if isDirect {
 			log.Debug().Msgf("sending direct message")
 			s.directSender <- sender{
-				ID:  resp.clientID,
+				ID:  resp.ClientID,
 				msg: resp,
 			}
 			continue
 		}
 		log.Debug().Msgf("sending channel message")
 		s.channelSender <- sender{
-			ID:  resp.channelID,
+			ID:  resp.ChannelID(),
 			msg: resp,
 		}
 		log.Debug().Msgf("channel message sent")
@@ -242,19 +307,19 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 }
 
 // WithErrorHandler can be used to overwrite the default error handler.
-func (s *SocketServer) WithErrorHandler(fn ErrorHandlerFunc) *SocketServer {
+func (s *SocketServer) WithErrorHandler(fn sockets.ServerErrorHandlerFunc) *SocketServer {
 	s.errHandler = fn
 	return s
 }
 
 // WithInfo will enable the info listener which responds with information on the server.
 func (s *SocketServer) WithInfo() *SocketServer {
-	s.RegisterDirectHandler(MessageGetInfo, s.infoListener)
+	s.RegisterDirectHandler(sockets.MessageGetInfo, s.infoListener)
 	return s
 }
 
 // handler will return a handler, checking for direct listeners first, if not found nil is returned.
-func (s *SocketServer) handler(name string) (HandlerFunc, bool) {
+func (s *SocketServer) handler(name string) (sockets.HandlerFunc, bool) {
 	s.RLock()
 	defer s.RUnlock()
 	l, ok := s.directListeners[name]
@@ -264,6 +329,8 @@ func (s *SocketServer) handler(name string) (HandlerFunc, bool) {
 	return s.broadcastListeners[name], false
 }
 
+// Close should always be called in a defer to allow the server
+// to gracefully shutdown and close underling connections.
 func (s *SocketServer) Close() {
 	s.close <- struct{}{}
 	<-s.done
@@ -273,7 +340,7 @@ func (s *SocketServer) Close() {
 //
 // This is used if a server event happens that needs to be sent to all clients
 // without a message being sent first via a listener.
-func (s *SocketServer) Broadcast(channelID string, msg *Message) {
+func (s *SocketServer) Broadcast(channelID string, msg *sockets.Message) {
 	s.channelSender <- sender{
 		ID:  channelID,
 		msg: msg,
@@ -284,7 +351,7 @@ func (s *SocketServer) Broadcast(channelID string, msg *Message) {
 //
 // This is used if a server event happens that needs to be sent to a client
 // without a message being sent first via a listener.
-func (s *SocketServer) BroadcastDirect(clientID string, msg *Message) {
+func (s *SocketServer) BroadcastDirect(clientID string, msg *sockets.Message) {
 	s.directSender <- sender{
 		ID:  clientID,
 		msg: msg,
@@ -294,10 +361,8 @@ func (s *SocketServer) BroadcastDirect(clientID string, msg *Message) {
 // WithMiddleware will append the middleware funcs to any already registered middleware functions.
 // When adding middleware, it is recommended to always add a PanicHandler first as this will ensure your
 // application has the best chance of recovering. There is a default panic handler available under sockets.PanicHandler.
-func (s *SocketServer) WithMiddleware(mws ...MiddlewareFunc) *SocketServer {
-	for _, mw := range mws {
-		s.middleware = append(s.middleware, mw)
-	}
+func (s *SocketServer) WithMiddleware(mws ...sockets.MiddlewareFunc) *SocketServer {
+	s.middleware = append(s.middleware, mws...)
 	return s
 }
 

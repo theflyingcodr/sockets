@@ -11,13 +11,14 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
+	sockets2 "github.com/theflyingcodr/sockets/server"
 )
 
 var (
 	upgrader = websocket.Upgrader{}
 )
 
-func WsHandler(svr *sockets.SocketServer) echo.HandlerFunc {
+func WsHandler(svr *sockets2.SocketServer) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
@@ -31,8 +32,8 @@ func WsHandler(svr *sockets.SocketServer) echo.HandlerFunc {
 	}
 }
 
-func SetupServer() *sockets.SocketServer {
-	s := sockets.NewSocketServer()
+func SetupServer() *sockets2.SocketServer {
+	s := sockets2.NewSocketServer()
 	s.WithInfo().
 		RegisterChannelHandler("test", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 			log.Info().Msg("SERVER received new test message")
