@@ -23,6 +23,7 @@ type connection struct {
 }
 
 func (c *connection) close() {
+	log.Debug().Msgf("closing connection %s", c.channelID)
 	if c.closing {
 		return
 	}
@@ -58,10 +59,6 @@ func (c *Client) listen(client *connection) {
 						return
 					}
 					client.ws = ws
-					//	c.channelReconnect <- reconnectChannel{
-					//		channelID: channelID,
-					//		conn:      ws,
-					//	}
 					log.Info().Msg("reconnected to server")
 				}
 				continue
@@ -107,12 +104,12 @@ func (c *Client) listen(client *connection) {
 			}
 		}
 	}()
-
-	<-c.close
+	<-client.closer
+	log.Debug().Msgf("closing channelID %s", channelID)
 	if err := client.ws.Close(); err != nil {
 		log.Err(err).Msgf("error when closing channelID '%s' socket connection", channelID)
 	}
-	close(c.done)
+	close(client.done)
 }
 
 func (c *Client) reconnect(url string) (*websocket.Conn, bool) {

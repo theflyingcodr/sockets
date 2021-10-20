@@ -18,9 +18,9 @@ func SetupClient() *client.Client {
 	log.Info().Msgf("connecting to %s", u.String())
 	h := http.Header{}
 	h.Add("test", "value")
-	client := client.New()
+	c := client.New()
 
-	client.RegisterListener(sockets.MessageInfo, func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+	c.RegisterListener(sockets.MessageInfo, func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 		log.Info().Msg("CLIENT received new info response")
 		var req Info
 		if err := msg.Bind(&req); err != nil {
@@ -36,15 +36,15 @@ func SetupClient() *client.Client {
 		return msg.NoContent()
 	})
 
-	for i := 0; i < 999; i++ {
-		if err := client.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h); err != nil {
+	for i := 0; i < 1; i++ {
+		if err := c.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h); err != nil {
 			log.Fatal().Err(err).Msg("CLIENT failed to join channel")
 		}
 		go func(id int) {
 			for {
 				log.Debug().Msg("sending messages")
 				time.Sleep(time.Millisecond * 500)
-				if err := client.Publish(sockets.Request{
+				if err := c.Publish(sockets.Request{
 					ChannelID:  fmt.Sprintf("test-channel-%d", id),
 					MessageKey: "test",
 					Body: TestMessage{
@@ -56,7 +56,7 @@ func SetupClient() *client.Client {
 					log.Err(err).Msg("failed to publish")
 				}
 
-				if err := client.Publish(sockets.Request{
+				if err := c.Publish(sockets.Request{
 					ChannelID:  fmt.Sprintf("test-channel-%d", id),
 					MessageKey: sockets.MessageGetInfo,
 					Headers:    h,
@@ -67,7 +67,7 @@ func SetupClient() *client.Client {
 		}(i)
 	}
 
-	return client
+	return c
 }
 
 type Info struct {

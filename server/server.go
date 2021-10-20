@@ -17,17 +17,19 @@ import (
 type opts struct {
 	writeTimeout    time.Duration
 	pongWait        time.Duration
-	pingPeriod      int64
+	pingPeriod      time.Duration
 	maxMessageBytes int64
 }
 
 func defaultOpts() *opts {
-	return &opts{
-		writeTimeout:    2 * time.Second,
-		pongWait:        60 * time.Second,
-		pingPeriod:      int64((60 * time.Second * 9) / 10),
+	o := &opts{
+		writeTimeout: 2 * time.Second,
+		pongWait:     60 * time.Second,
+
 		maxMessageBytes: 512,
 	}
+	o.pingPeriod = (o.pongWait * 9) / 10
+	return o
 }
 
 // OptFunc defines a functional option to pass to the server at setup time.
@@ -53,7 +55,7 @@ func WithPongTimeout(t time.Duration) OptFunc {
 
 // WithPingPeriod will define the break between pings to the server.
 // This should always be less than PongTimeout.
-func WithPingPeriod(i int64) OptFunc {
+func WithPingPeriod(i time.Duration) OptFunc {
 	return func(c *opts) {
 		c.pingPeriod = i
 	}
@@ -237,6 +239,7 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 		ws:       conn,
 		send:     make(chan interface{}, 1),
 		clientID: clientID,
+		opts:     s.opts,
 	}
 	go c.writer()
 	log.Debug().Msgf("adding connection to channelID %s", channelID)

@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.21.0
+    ports:
+      - 9000:9090
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command: --web.enable-lifecycle  --config.file=/etc/prometheus/prometheus.yml
+
+  socket-server:
+    container_name: socket-server
+    image: local.socket-server
+    build:
+      context: .
+    ports:
+      - "9323:9323"
+
+volumes:
+  prometheus-data:

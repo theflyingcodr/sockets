@@ -18,7 +18,7 @@ type connection struct {
 
 // writer sends messages from the server to the websocket connection.
 func (c *connection) writer() {
-	ticker := time.NewTicker(time.Duration(c.opts.pingPeriod) * time.Second)
+	ticker := time.NewTicker(c.opts.pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = c.ws.Close()

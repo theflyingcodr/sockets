@@ -7,8 +7,9 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/pkgerrors"
 
-	"github.com/theflyingcodr/sockets/examples/clientserver"
+	"github.com/theflyingcodr/clientserver"
 	"github.com/theflyingcodr/sockets/middleware"
 )
 
@@ -19,6 +20,7 @@ type TestMessage struct {
 
 func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
 	c := clientserver.SetupClient()
 	defer c.Close()

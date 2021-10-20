@@ -205,7 +205,7 @@ func (c *Client) WithErrorHandler(e sockets.ClientErrorHandlerFunc) *Client {
 
 // Close will ensure the client is gracefully shut down.
 func (c *Client) Close() {
-	log.Info().Msg("closing socket client")
+	log.Debug().Msg("closing socket client")
 	for _, conn := range c.conn {
 		conn.close()
 	}
@@ -229,7 +229,7 @@ func (c *Client) JoinChannel(host, channelID string, headers http.Header) error 
 		url:       fmt.Sprintf("%s/%s", host, channelID),
 		channelID: channelID,
 		ws:        ws,
-		closer:    make(chan bool, 1),
+		closer:    make(chan bool),
 		done:      make(chan struct{}),
 	}
 	log.Info().Msgf("connected to channel %s", channelID)
