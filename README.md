@@ -3,7 +3,7 @@
 > Channel based socket library on top of gorilla/sockets giving listeners, middleware, server and clients.
 
 [![Release](https://img.shields.io/github/release-pre/theflyingcodr/sockets.svg?logo=github&style=flat&v=1)](https://github.com/theflyingcodr/sockets/releases)
-[![Build Status](https://img.shields.io/github/workflow/status/theflyingcodr/sockets/run-go-tests?logo=github&v=3)](https://github.com/theflyingcodr/sockets/actions)
+[![Go](https://github.com/theflyingcodr/sockets/actions/workflows/go.yml/badge.svg)](https://github.com/theflyingcodr/sockets/actions/workflows/go.yml)
 [![Report](https://goreportcard.com/badge/github.com/theflyingcodr/sockets?style=flat&v=1)](https://goreportcard.com/report/github.com/theflyingcodr/sockets)
 [![codecov](https://codecov.io/gh/libsv/go-bt/branch/master/graph/badge.svg?v=1)](https://codecov.io/gh/theflyingcodr/sockets)
 [![Go](https://img.shields.io/github/go-mod/go-version/theflyingcodr/sockets?v=1)](https://golang.org/)
