@@ -23,7 +23,9 @@ func wsHandler(svr *server.SocketServer) echo.HandlerFunc {
 			return err
 		}
 		defer ws.Close()
-		svr.Listen(ws, c.Param("channelID"))
+		if err := svr.Listen(ws, c.Param("channelID")); err != nil {
+			return err
+		}
 
 		log.Info().Msgf("exiting listener")
 		return nil

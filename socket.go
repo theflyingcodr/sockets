@@ -3,6 +3,7 @@ package sockets
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -158,6 +159,9 @@ func (m Message) Bind(v interface{}) error {
 
 // WithBody will serialise the value v into the message body.
 func (m *Message) WithBody(v interface{}) error {
+	if isNil(v) {
+		return nil
+	}
 	bb, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -192,7 +196,7 @@ type ErrorMessage struct {
 	UserID        string          `json:"userId"`
 	Key           string          `json:"type"`
 	OriginKey     string          `json:"originType"`
-	OrginBody     json.RawMessage `json:"originBody"`
+	OriginBody    json.RawMessage `json:"originBody"`
 	ErrorBody     json.RawMessage `json:"errorBody"`
 	ChannelID     string          `json:"channelId"`
 	ClientID      string          `json:"clientId"`
@@ -204,14 +208,17 @@ type ErrorMessage struct {
 //
 // There is a default sockets.ErrorDetail struct available, or you can define your own.
 func (m *Message) ToError(err interface{}) *ErrorMessage {
-	bb, _ := json.Marshal(err)
+	var bb []byte
+	if !isNil(err) {
+		bb, _ = json.Marshal(err)
+	}
 	e := &ErrorMessage{
 		CorrelationID: m.CorrelationID,
 		AppID:         m.AppID,
 		UserID:        m.UserID,
 		Key:           MessageError,
 		OriginKey:     m.key,
-		OrginBody:     m.Body,
+		OriginBody:    m.Body,
 		ErrorBody:     bb,
 		ChannelID:     m.channelID,
 		ClientID:      m.ClientID,
@@ -232,8 +239,21 @@ func (e *ErrorMessage) Bind(v interface{}) error {
 // BindOriginBody can be used to decode the body for the original message that triggered
 // this error, useful for replaying.
 func (e *ErrorMessage) BindOriginBody(v interface{}) error {
-	if e.OrginBody == nil {
+	if e.OriginBody == nil {
 		return nil
 	}
-	return json.Unmarshal(e.OrginBody, &v)
+	return json.Unmarshal(e.OriginBody, &v)
+}
+
+// isNil safely checks an interface for nil.
+func isNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+	// nolint: exhaustive // don't catering for everything... yet
+	switch reflect.TypeOf(i).Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(i).IsNil()
+	}
+	return false
 }
