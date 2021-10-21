@@ -141,6 +141,7 @@ func Metrics() sockets.MiddlewareFunc {
 		Name: "received_messages",
 		Help: "The total number of received messages",
 	})
+
 	return func(next sockets.HandlerFunc) sockets.HandlerFunc {
 		return func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 			opsProcessed.Inc()

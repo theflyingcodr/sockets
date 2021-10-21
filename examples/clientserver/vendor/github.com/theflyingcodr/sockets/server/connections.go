@@ -18,7 +18,7 @@ type connection struct {
 
 // writer sends messages from the server to the websocket connection.
 func (c *connection) writer() {
-	ticker := time.NewTicker(time.Duration(c.opts.pingPeriod) * time.Second)
+	ticker := time.NewTicker(c.opts.pingPeriod)
 	defer func() {
 		ticker.Stop()
 		_ = c.ws.Close()
@@ -34,6 +34,19 @@ func (c *connection) writer() {
 			if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, msg); err != nil {
 				log.Err(err)
 				return
+			}
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				msg, ok = <-c.send
+				if !ok {
+					_ = internal.Write(c.ws, c.opts.writeTimeout, websocket.CloseMessage, []byte{})
+					log.Debug().Msgf("closing connection for clientID %s", c.clientID)
+					return
+				}
+				if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, msg); err != nil {
+					log.Err(err)
+					return
+				}
 			}
 		case <-ticker.C:
 			if err := internal.Write(c.ws, c.opts.writeTimeout, websocket.PingMessage, []byte{}); err != nil {

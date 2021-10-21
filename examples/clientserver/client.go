@@ -14,7 +14,7 @@ import (
 )
 
 func SetupClient() *client.Client {
-	u := url.URL{Scheme: "ws", Host: "localhost:1323", Path: "/ws"}
+	u := url.URL{Scheme: "ws", Host: "localhost:9323", Path: "/ws"}
 	log.Info().Msgf("connecting to %s", u.String())
 	h := http.Header{}
 	h.Add("test", "value")
@@ -36,14 +36,14 @@ func SetupClient() *client.Client {
 		return msg.NoContent()
 	})
 
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2000; i++ {
 		if err := c.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h); err != nil {
 			log.Fatal().Err(err).Msg("CLIENT failed to join channel")
 		}
 		go func(id int) {
 			for {
 				log.Debug().Msg("sending messages")
-				time.Sleep(time.Millisecond * 500)
+				time.Sleep(time.Millisecond * 250)
 				if err := c.Publish(sockets.Request{
 					ChannelID:  fmt.Sprintf("test-channel-%d", id),
 					MessageKey: "test",
@@ -56,13 +56,6 @@ func SetupClient() *client.Client {
 					log.Err(err).Msg("failed to publish")
 				}
 
-				if err := c.Publish(sockets.Request{
-					ChannelID:  fmt.Sprintf("test-channel-%d", id),
-					MessageKey: sockets.MessageGetInfo,
-					Headers:    h,
-				}); err != nil {
-					log.Err(err).Msg("failed to publish")
-				}
 			}
 		}(i)
 	}

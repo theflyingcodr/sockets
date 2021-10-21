@@ -8,6 +8,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
@@ -19,11 +21,13 @@ var (
 )
 
 func WsHandler(svr *server.SocketServer) echo.HandlerFunc {
+
 	return func(c echo.Context) error {
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
+
 		defer ws.Close()
 		svr.Listen(ws, c.Param("channelID"))
 
@@ -33,8 +37,7 @@ func WsHandler(svr *server.SocketServer) echo.HandlerFunc {
 }
 
 func SetupServer() *server.SocketServer {
-	s := server.NewSocketServer()
-	s.WithInfo().
+	s := server.NewSocketServer().
 		RegisterChannelHandler("test", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 			log.Info().Msg("SERVER received new test message")
 			var req TestMessage
@@ -50,6 +53,35 @@ func SetupServer() *server.SocketServer {
 			}
 			return resp, err
 		})
+
+	gCo := promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "sockets",
+		Subsystem: "server",
+		Name:      "gauge_total_connections",
+	})
+
+	s.OnClientJoin(func(clientID, channelID string) {
+		gCo.Inc()
+	})
+
+	s.OnClientLeave(func(clientID, channelID string) {
+		gCo.Dec()
+	})
+
+	gCh := promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "sockets",
+		Subsystem: "server",
+		Name:      "gauge_total_channels",
+	})
+
+	s.OnChannelCreate(func(channelID string) {
+		gCh.Inc()
+	})
+
+	s.OnChannelClose(func(channelID string) {
+		gCh.Dec()
+	})
+
 	return s
 }
 

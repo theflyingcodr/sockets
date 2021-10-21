@@ -35,6 +35,21 @@ func (c *connection) writer() {
 				log.Err(err)
 				return
 			}
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				msg, ok = <-c.send
+				if !ok {
+					_ = internal.Write(c.ws, c.opts.writeTimeout, websocket.CloseMessage, []byte{})
+					log.Debug().Msgf("closing connection for clientID %s", c.clientID)
+					return
+				}
+				go func(m interface{}) {
+					if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, m); err != nil {
+						log.Err(err)
+						return
+					}
+				}(msg)
+			}
 		case <-ticker.C:
 			if err := internal.Write(c.ws, c.opts.writeTimeout, websocket.PingMessage, []byte{}); err != nil {
 				log.Err(err)

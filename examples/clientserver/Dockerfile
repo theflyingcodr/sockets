@@ -1,7 +1,7 @@
 FROM golang:1.17.1-buster as builder
 
 WORKDIR /app
-COPY cmd/server .
+COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" ./cmd/client

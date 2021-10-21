@@ -49,6 +49,7 @@ github.com/pkg/errors
 ## explicit; go 1.13
 github.com/prometheus/client_golang/prometheus
 github.com/prometheus/client_golang/prometheus/internal
+github.com/prometheus/client_golang/prometheus/promauto
 github.com/prometheus/client_golang/prometheus/promhttp
 # github.com/prometheus/client_model v0.2.0
 ## explicit; go 1.9
@@ -70,7 +71,7 @@ github.com/rs/zerolog/internal/cbor
 github.com/rs/zerolog/internal/json
 github.com/rs/zerolog/log
 github.com/rs/zerolog/pkgerrors
-# github.com/theflyingcodr/sockets v0.0.0-20211020085836-85da63b3d141
+# github.com/theflyingcodr/sockets v0.0.0-20211020085836-85da63b3d141 => ../../
 ## explicit; go 1.17
 github.com/theflyingcodr/sockets
 github.com/theflyingcodr/sockets/client
@@ -139,3 +140,4 @@ google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/known/anypb
 google.golang.org/protobuf/types/known/durationpb
 google.golang.org/protobuf/types/known/timestamppb
+# github.com/theflyingcodr/sockets => ../../

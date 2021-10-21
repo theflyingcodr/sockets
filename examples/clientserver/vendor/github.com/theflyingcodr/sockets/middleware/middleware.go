@@ -3,8 +3,11 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
@@ -51,8 +54,8 @@ func PanicHandler(next sockets.HandlerFunc) sockets.HandlerFunc {
 	return func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 		defer func() {
 			if err := recover(); err != nil {
-				fmt.Println("hitting panic handler")
-				log.Error().Msgf("panic occurred: %s", err)
+				fmt.Println(string(debug.Stack()))
+				log.Error().Err(err.(error)).Stack().Msg("panic occurred")
 			}
 		}()
 		return next(ctx, msg)
@@ -97,7 +100,6 @@ func Logger(cfg *LoggerConfig) sockets.MiddlewareFunc {
 				Str("userID", msg.UserID).
 				Str("clientID", msg.ClientID).
 				Str("channelID", msg.ChannelID()).
-				Time("expiry", *msg.Expiration).
 				Time("timestamp", msg.Timestamp()).
 				Str("headers", fmt.Sprintf("%s", msg.Headers)).
 				RawJSON("body", msg.Body).
@@ -115,7 +117,6 @@ func Logger(cfg *LoggerConfig) sockets.MiddlewareFunc {
 				Str("userID", msg.UserID).
 				Str("clientID", msg.ClientID).
 				Str("channelID", msg.ChannelID()).
-				Time("expiry", *msg.Expiration).
 				Time("timestamp", msg.Timestamp()).
 				Str("headers", fmt.Sprintf("%s", msg.Headers)).
 				RawJSON("body", msg.Body).
@@ -133,4 +134,18 @@ func ExecMiddlewareChain(f sockets.HandlerFunc, m []sockets.MiddlewareFunc) sock
 	}
 	// otherwise nest the handlerfuncs
 	return m[0](ExecMiddlewareChain(f, m[1:]))
+}
+
+func Metrics() sockets.MiddlewareFunc {
+	opsProcessed := promauto.NewCounter(prometheus.CounterOpts{
+		Name: "received_messages",
+		Help: "The total number of received messages",
+	})
+
+	return func(next sockets.HandlerFunc) sockets.HandlerFunc {
+		return func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+			opsProcessed.Inc()
+			return next(ctx, msg)
+		}
+	}
 }

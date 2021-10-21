@@ -83,17 +83,19 @@ type SocketServer struct {
 	directListeners    map[string]sockets.HandlerFunc
 	middleware         []sockets.MiddlewareFunc
 	errHandler         sockets.ServerErrorHandlerFunc
-	channelCloser      chan string
 	unregister         chan unregister
 	register           chan register
 	channelSender      chan sender
 	directSender       chan sender
-	errs               chan *sockets.ErrorMessage
 	close              chan struct{}
 	done               chan struct{}
 	i                  *info
 	opts               *opts
-	sync.RWMutex
+	onRegister         func(clientID, channelID string)
+	onDeRegister       func(clientID, channelID string)
+	onChannelClose     func(channelID string)
+	onChannelCreate    func(channelID string)
+	//sync.RWMutex
 }
 
 // NewSocketServer will setup and return a new instance of a SocketServer.
@@ -111,14 +113,12 @@ func NewSocketServer(opts ...OptFunc) *SocketServer {
 		directListeners:    make(map[string]sockets.HandlerFunc),
 		middleware:         make([]sockets.MiddlewareFunc, 0),
 		errHandler:         defaultErrorHandler,
-		channelCloser:      make(chan string),
 		unregister:         make(chan unregister, 1),
 		register:           make(chan register, 1),
 		close:              make(chan struct{}, 1),
 		done:               make(chan struct{}, 1),
 		channelSender:      make(chan sender, 256),
 		directSender:       make(chan sender, 256),
-		errs:               make(chan *sockets.ErrorMessage, 256),
 		opts:               defaults,
 	}
 	go s.channelManager()
@@ -137,21 +137,10 @@ func (s *SocketServer) channelManager() {
 			}
 			close(s.unregister)
 			close(s.register)
-			close(s.channelCloser)
 
 			log.Info().Msg("connections terminated")
 			s.done <- struct{}{}
 			return
-		case channelID := <-s.channelCloser:
-			ch := s.channels[channelID]
-			delete(s.channels, channelID)
-			if ch == nil {
-				continue
-			}
-			s.updateInfo(&info{
-				totalConnections: len(s.clientConnections),
-				totalChannels:    len(s.channels),
-			})
 		case u := <-s.unregister:
 			conn, ok := s.clientConnections[u.clientID]
 			if ok && conn != nil {
@@ -165,44 +154,56 @@ func (s *SocketServer) channelManager() {
 			delete(ch.conns, u.clientID)
 			if len(ch.conns) == 0 {
 				delete(s.channels, u.channelID)
+				s.onChannelClose(u.channelID)
 			}
-			s.updateInfo(&info{
-				totalConnections: len(s.clientConnections),
-				totalChannels:    len(s.channels),
-			})
+			s.onDeRegister(u.clientID, u.channelID)
 		case u := <-s.register:
 			s.clientConnections[u.clientID] = u.connection
 			ch, ok := s.channels[u.channelID]
 			if !ok {
 				ch = newChannel(u.channelID)
 				s.channels[u.channelID] = ch
+				s.onChannelCreate(u.channelID)
 			}
 			ch.conns[u.clientID] = u.connection
-			s.updateInfo(&info{
-				totalConnections: len(s.clientConnections),
-				totalChannels:    len(s.channels),
-			})
+			s.onRegister(u.clientID, u.channelID)
 		case m := <-s.channelSender:
+			log.Debug().Msg("running channel sender")
 			ch := s.channels[m.ID]
+			log.Debug().Msg("looked up channel")
 			if ch == nil {
 				log.Debug().Msgf("channel %s is nil", m.ID)
 				continue
 			}
+			log.Debug().Msg("channel not nil")
 			for _, sub := range ch.conns {
 				sub.send <- m.msg
 			}
+			log.Debug().Msg("sent to all connections")
 			// clear buffer
 			n := len(s.channelSender)
+			log.Debug().Msgf("buffer to clear %d", n)
 			for i := 0; i < n; i++ {
-				ch := s.channels[m.ID]
-				if ch == nil {
-					log.Debug().Msgf("channel %s is nil", m.ID)
+				send, ok := <-s.channelSender
+				if !ok {
+					log.Debug().Msgf("channel sender is empty", m.ID)
 					continue
 				}
-				for _, sub := range ch.conns {
-					sub.send <- m.msg
+				ch := s.channels[send.ID]
+				if ch == nil {
+					continue
 				}
+				wg := sync.WaitGroup{}
+				go func(m interface{}) {
+					wg.Add(1)
+					for _, sub := range ch.conns {
+						sub.send <- m
+					}
+					wg.Done()
+				}(send.msg)
+				wg.Wait()
 			}
+			log.Debug().Msgf("cleared channel buffers %d", len(s.channelSender))
 		case m := <-s.directSender:
 			ch := s.clientConnections[m.ID]
 			if ch == nil {
@@ -212,13 +213,42 @@ func (s *SocketServer) channelManager() {
 			// clear buffer
 			n := len(s.directSender)
 			for i := 0; i < n; i++ {
-				ch := s.clientConnections[m.ID]
+				send := <-s.directSender
+				ch := s.clientConnections[send.ID]
 				if ch == nil {
 					continue
 				}
-				ch.send <- m.msg
+				go func() { ch.send <- m.msg }()
 			}
 		}
+	}
+}
+
+// OnClientJoin is called when a client joins a channel.
+func (s *SocketServer) OnClientJoin(fn func(clientID, channelID string)) {
+	if fn != nil {
+		s.onRegister = fn
+	}
+}
+
+// OnClientLeave is called when a client leaves a channel.
+func (s *SocketServer) OnClientLeave(fn func(clientID, channelID string)) {
+	if fn != nil {
+		s.onDeRegister = fn
+	}
+}
+
+// OnChannelClose is called when all clients have left a channel and it is closed.
+func (s *SocketServer) OnChannelClose(fn func(channelID string)) {
+	if fn != nil {
+		s.onChannelClose = fn
+	}
+}
+
+// OnChannelCreate is called when a new channel is created.
+func (s *SocketServer) OnChannelCreate(fn func(channelID string)) {
+	if fn != nil {
+		s.onChannelCreate = fn
 	}
 }
 
@@ -237,12 +267,12 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 	log.Info().Msgf("receiving new connection with clientID %s", clientID)
 	c := &connection{
 		ws:       conn,
-		send:     make(chan interface{}, 1),
+		send:     make(chan interface{}, 256),
 		clientID: clientID,
 		opts:     s.opts,
 	}
 	go c.writer()
-	log.Debug().Msgf("adding connection to channelID %s", channelID)
+	log.Debug().Msgf("adding clientID %s connection to channelID %s", clientID, channelID)
 	s.register <- register{
 		channelID:  channelID,
 		clientID:   clientID,
@@ -315,16 +345,8 @@ func (s *SocketServer) WithErrorHandler(fn sockets.ServerErrorHandlerFunc) *Sock
 	return s
 }
 
-// WithInfo will enable the info listener which responds with information on the server.
-func (s *SocketServer) WithInfo() *SocketServer {
-	s.RegisterDirectHandler(sockets.MessageGetInfo, s.infoListener)
-	return s
-}
-
 // handler will return a handler, checking for direct listeners first, if not found nil is returned.
 func (s *SocketServer) handler(name string) (sockets.HandlerFunc, bool) {
-	s.RLock()
-	defer s.RUnlock()
 	l, ok := s.directListeners[name]
 	if ok {
 		return l, true
@@ -367,18 +389,6 @@ func (s *SocketServer) BroadcastDirect(clientID string, msg *sockets.Message) {
 func (s *SocketServer) WithMiddleware(mws ...sockets.MiddlewareFunc) *SocketServer {
 	s.middleware = append(s.middleware, mws...)
 	return s
-}
-
-func (s *SocketServer) info() *info {
-	s.RLock()
-	defer s.RUnlock()
-	return s.i
-}
-
-func (s *SocketServer) updateInfo(i *info) {
-	s.Lock()
-	defer s.Unlock()
-	s.i = i
 }
 
 func (s *SocketServer) unregisterClient(channelID, clientID string) {
