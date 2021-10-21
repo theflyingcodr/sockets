@@ -89,13 +89,11 @@ type SocketServer struct {
 	directSender       chan sender
 	close              chan struct{}
 	done               chan struct{}
-	i                  *info
 	opts               *opts
 	onRegister         func(clientID, channelID string)
 	onDeRegister       func(clientID, channelID string)
 	onChannelClose     func(channelID string)
 	onChannelCreate    func(channelID string)
-	//sync.RWMutex
 }
 
 // NewSocketServer will setup and return a new instance of a SocketServer.
@@ -186,7 +184,7 @@ func (s *SocketServer) channelManager() {
 			for i := 0; i < n; i++ {
 				send, ok := <-s.channelSender
 				if !ok {
-					log.Debug().Msgf("channel sender is empty", m.ID)
+					log.Debug().Msgf("channel sender %s is empty", m.ID)
 					continue
 				}
 				ch := s.channels[send.ID]
@@ -194,13 +192,13 @@ func (s *SocketServer) channelManager() {
 					continue
 				}
 				wg := sync.WaitGroup{}
-				go func(m interface{}) {
+				for _, sub := range ch.conns {
 					wg.Add(1)
-					for _, sub := range ch.conns {
-						sub.send <- m
-					}
-					wg.Done()
-				}(send.msg)
+					go func(s *connection, m interface{}) {
+						s.send <- m
+						wg.Done()
+					}(sub, send.msg)
+				}
 				wg.Wait()
 			}
 			log.Debug().Msgf("cleared channel buffers %d", len(s.channelSender))
@@ -409,9 +407,4 @@ type unregister struct {
 type sender struct {
 	ID  string
 	msg interface{}
-}
-
-type info struct {
-	totalConnections int
-	totalChannels    int
 }

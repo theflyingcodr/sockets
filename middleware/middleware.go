@@ -136,6 +136,10 @@ func ExecMiddlewareChain(f sockets.HandlerFunc, m []sockets.MiddlewareFunc) sock
 	return m[0](ExecMiddlewareChain(f, m[1:]))
 }
 
+// Metrics contains basic example metrics that can be captured
+// and pulled into prometheus.
+//
+// You would most likely implement your own version of this.
 func Metrics() sockets.MiddlewareFunc {
 	opsProcessed := promauto.NewCounter(prometheus.CounterOpts{
 		Name: "received_messages",
