@@ -255,18 +255,85 @@ func TestMessage_ToError(t *testing.T) {
 func TestErrorMessage_Bind(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
-		// TODO: add test properties
-		err error
+		errMsg    *ErrorMessage
+		expDetail ErrorDetail
+		err       error
 	}{
 		"successful run should return no errors": {
+			errMsg: &ErrorMessage{
+				ErrorBody: []byte(`{"title":"my error","description":"a failure occurred","errCode":"abc"}`),
+			},
+			expDetail: ErrorDetail{
+				Title:       "my error",
+				Description: "a failure occurred",
+				ErrCode:     "abc",
+			},
 			err: nil,
 		},
-		// TODO: add test cases
+		"empty error body should return nil": {
+			errMsg: &ErrorMessage{},
+			err:    nil,
+		}, "guff json should error": {
+			errMsg: &ErrorMessage{
+				ErrorBody: []byte(`{"title":}`),
+			},
+			err: errors.New("invalid character '}' looking for beginning of value"),
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.NoError(t, test.err)
-			// TODO: write test
+			var body ErrorDetail
+			err := test.errMsg.Bind(&body)
+			if test.err != nil {
+				assert.Error(t, err)
+				assert.EqualError(t, err, test.err.Error())
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, test.expDetail, body)
+		})
+	}
+}
+
+func TestErrorMessage_BindOriginBody(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		errMsg        *ErrorMessage
+		expOriginBody Bodytest
+		err           error
+	}{
+		"successful run should return no errors": {
+			errMsg: &ErrorMessage{
+				OriginBody: []byte(`{"test":"viking wizard eyes","my":182,"othertest":true}`),
+			},
+			expOriginBody: Bodytest{
+				Test:      "viking wizard eyes",
+				My:        182,
+				Othertest: true,
+			},
+			err: nil,
+		},
+		"empty error body should return nil": {
+			errMsg: &ErrorMessage{},
+			err:    nil,
+		}, "guff json should error": {
+			errMsg: &ErrorMessage{
+				OriginBody: []byte(`{"title":}`),
+			},
+			err: errors.New("invalid character '}' looking for beginning of value"),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var body Bodytest
+			err := test.errMsg.BindOriginBody(&body)
+			if test.err != nil {
+				assert.Error(t, err)
+				assert.EqualError(t, err, test.err.Error())
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, test.expOriginBody, body)
 		})
 	}
 }
