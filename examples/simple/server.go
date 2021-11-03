@@ -33,7 +33,7 @@ func wsHandler(svr *server.SocketServer) echo.HandlerFunc {
 }
 
 func setupServer() *server.SocketServer {
-	s := server.NewSocketServer().
+	s := server.New().
 		RegisterChannelHandler("test", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 			log.Info().Msg("SERVER received new test message")
 			var req TestMessage

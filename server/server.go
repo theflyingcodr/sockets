@@ -96,8 +96,8 @@ type SocketServer struct {
 	onChannelCreate    func(channelID string)
 }
 
-// NewSocketServer will setup and return a new instance of a SocketServer.
-func NewSocketServer(opts ...OptFunc) *SocketServer {
+// New will setup and return a new instance of a SocketServer.
+func New(opts ...OptFunc) *SocketServer {
 	defaults := defaultOpts()
 
 	for _, o := range opts {
