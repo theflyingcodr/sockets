@@ -113,11 +113,15 @@ func New(opts ...OptFunc) *SocketServer {
 		errHandler:         defaultErrorHandler,
 		unregister:         make(chan unregister, 1),
 		register:           make(chan register, 1),
-		close:              make(chan struct{}, 1),
-		done:               make(chan struct{}, 1),
 		channelSender:      make(chan sender, 256),
 		directSender:       make(chan sender, 256),
+		close:              make(chan struct{}, 1),
+		done:               make(chan struct{}, 1),
 		opts:               defaults,
+		onRegister:         func(clientID, channelID string) {},
+		onDeRegister:       func(clientID, channelID string) {},
+		onChannelClose:     func(channelID string) {},
+		onChannelCreate:    func(channelID string) {},
 	}
 	go s.channelManager()
 	return s

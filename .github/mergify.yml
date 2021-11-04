@@ -24,6 +24,9 @@ pull_request_rules:
         message: Automatically approving dependabot pull request
       merge:
         method: squash
+      label:
+        add:
+          - update
   - name: Alert on major version detection
     conditions:
       - author~=^dependabot(|-preview)\[bot\]$
@@ -40,7 +43,11 @@ pull_request_rules:
     actions:
       comment:
         message: "⚠️ @theflyingcodr: this is a major version bump and requires your attention"
-
+      label:
+        add:
+          - update
+      assign:
+        users: [ "theflyingcodr" ]
 
   # ===============================================================================
   # AUTOMATIC MERGE (APPROVALS)
@@ -48,7 +55,9 @@ pull_request_rules:
 
   - name: Automatic Merge ⬇️ on Approval ✔
     conditions:
-      - "#approved-reviews-by>=1"
+      - or:
+          - author=theflyingcodr
+          - "#approved-reviews-by>=1"
       - check-success='build (1.17.x, ubuntu-latest)'
       - check-success='build (1.16.x, ubuntu-latest)'
       - check-success='build (1.17.x, macos-latest)'
@@ -61,8 +70,13 @@ pull_request_rules:
       - label!=work-in-progress
       - -draft
     actions:
+      review:
+        type: APPROVE
       merge:
         method: squash
+      comment:
+        message: "Automatically merging this PR, LGTM! \n\n  ![Great Success](https://media.giphy.com/media/a0h7sAqON67nO/giphy.gif?cid=ecf05e47wywpzv7bclrv6muzureq5hk0u3rd8fradbqjng68&rid=giphy.gif&ct=g)"
+
 
   # ===============================================================================
   # AUTHOR
