@@ -94,10 +94,18 @@ func (c *Client) listen(client *connection) {
 			// exec middleware and then handler.
 			resp, err := middleware.ExecMiddlewareChain(fn, c.middleware)(ctx, msg)
 			if err != nil {
-				c.errHandler(resp.ToError(nil))
+				if resp != nil {
+					c.errHandler(resp.ToError(err))
+					continue
+				}
+				c.errHandler(msg.ToError(err))
 				continue
 			}
 			if resp != nil {
+				log.Debug().
+					RawJSON("message body", resp.Body).
+					Str("key", resp.Key()).
+					Msg("sending message")
 				c.sender <- sendMsg{
 					m: resp,
 				}
