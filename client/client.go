@@ -117,6 +117,7 @@ type Client struct {
 	listeners        map[string]sockets.HandlerFunc
 	middleware       []sockets.MiddlewareFunc
 	errHandler       sockets.ClientErrorHandlerFunc
+	serverErrHandler sockets.ClientErrorMsgHandlerFunc
 	close            chan struct{}
 	done             chan struct{}
 	sender           chan sendMsg
@@ -146,6 +147,7 @@ func New(opts ...OptFunc) *Client {
 		listeners:        make(map[string]sockets.HandlerFunc),
 		middleware:       make([]sockets.MiddlewareFunc, 0),
 		errHandler:       defaultErrorHandler,
+		serverErrHandler: defaultErrorMsgHandler,
 		close:            make(chan struct{}, 1),
 		done:             make(chan struct{}, 1),
 		sender:           make(chan sendMsg, 256),
@@ -200,6 +202,16 @@ func (c *Client) WithErrorHandler(e sockets.ClientErrorHandlerFunc) *Client {
 	c.Lock()
 	defer c.Unlock()
 	c.errHandler = e
+	return c
+}
+
+// WithServerErrorHandler allows a user to overwrite the default server error handler.
+//
+// This handles ErrorMessage responses from a server in response to a client send.
+func (c *Client) WithServerErrorHandler(e sockets.ClientErrorMsgHandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.serverErrHandler = e
 	return c
 }
 
