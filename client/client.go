@@ -148,6 +148,7 @@ func New(opts ...OptFunc) *Client {
 		middleware:       make([]sockets.MiddlewareFunc, 0),
 		errHandler:       defaultErrorHandler,
 		serverErrHandler: defaultErrorMsgHandler,
+
 		close:            make(chan struct{}, 1),
 		done:             make(chan struct{}, 1),
 		sender:           make(chan sendMsg, 256),
@@ -159,6 +160,8 @@ func New(opts ...OptFunc) *Client {
 		opts:             o,
 	}
 	cli.RegisterListener(sockets.MessageJoinSuccess, cli.joinSuccess)
+	cli.RegisterListener(sockets.MessageChannelExpired, channelExpired)
+	cli.RegisterListener(sockets.MessageChannelClosed, channelClosed)
 	go cli.channelManager()
 	return cli
 }
@@ -170,6 +173,28 @@ func (c *Client) WithJoinRoomSuccessListener(l sockets.HandlerFunc) *Client {
 	c.Lock()
 	defer c.Unlock()
 	c.listeners[sockets.MessageJoinSuccess] = l
+	return c
+}
+
+// WithChannelExpiredListener will replace the default channel expired handler which simply
+// prints a debug message.
+//
+// By adding your own you can handle the channel expiry in a custom manner.
+func (c *Client) WithChannelExpiredListener(l sockets.HandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.listeners[sockets.MessageChannelExpired] = l
+	return c
+}
+
+// WithChannelClosedListener will replace the default channel closed handler which simply
+// prints a debug message. This is raised when the server explicitly closes a channel.
+//
+// By adding your own you can handle the channel close in a custom manner.
+func (c *Client) WithChannelClosedListener(l sockets.HandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.listeners[sockets.MessageChannelExpired] = l
 	return c
 }
 
@@ -331,7 +356,7 @@ func (c *Client) Publish(req sockets.Request) error {
 }
 
 // RegisterListener will add a new listener to the client.
-func (c *Client) RegisterListener(msgType string, fn sockets.HandlerFunc) *Client {
+func (c *Client) RegisterListener(msgType string, fn sockets.HandlerFunc) sockets.Client {
 	c.Lock()
 	defer c.Unlock()
 	c.listeners[msgType] = fn

@@ -42,3 +42,13 @@ func (c *Client) joinSuccess(ctx context.Context, msg *sockets.Message) (*socket
 	}
 	return msg.NoContent()
 }
+
+func channelExpired(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+	log.Debug().Msgf("channel expired %s", msg.ChannelID())
+	return msg.NoContent()
+}
+
+func channelClosed(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+	log.Debug().Msgf("channel closed %s", msg.ChannelID())
+	return msg.NoContent()
+}
