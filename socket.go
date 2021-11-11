@@ -9,6 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// common headers.
+const (
+	HeaderChannelExpiry = "X-Channel-Expires"
+)
+
 // Client can be used to implement a client which will send and listen
 // to messages on channels.
 type Client interface {

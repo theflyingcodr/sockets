@@ -6,11 +6,13 @@ import (
 
 // Common messages.
 const (
-	MessageJoinSuccess  = "join.success"
-	MessageLeaveSuccess = "leave.success"
-	MessageGetInfo      = "get.info"
-	MessageInfo         = "info"
-	MessageError        = "error"
+	MessageJoinSuccess    = "join.success"
+	MessageLeaveSuccess   = "leave.success"
+	MessageGetInfo        = "get.info"
+	MessageInfo           = "info"
+	MessageError          = "error"
+	MessageChannelExpired = "channel.expired"
+	MessageChannelClosed  = "channel.closed"
 )
 
 // HandlerFunc defines listeners on both the server and clients.
