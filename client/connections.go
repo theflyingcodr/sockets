@@ -43,7 +43,7 @@ func (c *Client) listen(conn *connection) {
 			var body map[string]interface{}
 			_, bb, err := conn.ws.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure) {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 					log.Error().Err(errors.WithStack(err)).Msg("received unknown read error")
 					ws, ok := c.reconnect(conn.url)
 					if !ok {
