@@ -19,7 +19,7 @@ const (
 type Client interface {
 	JoinChannel(host, channelID string, headers http.Header) error
 	LeaveChannel(channelID string, headers http.Header)
-	RegisterListener(msgType string, fn HandlerFunc) Client
+	RegisterListener(msgType string, fn HandlerFunc)
 }
 
 // ClientPublisher can be implemented to allow a client to send messages
