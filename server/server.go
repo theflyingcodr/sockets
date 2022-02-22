@@ -496,11 +496,8 @@ func (s *SocketServer) HasChannel(channelID string) bool {
 		exists: exists,
 	}
 
-	log.Info().Msgf("waiting on response for channel %s", channelID)
-
 	result := <-exists
 	log.Info().Msgf("channel %s exists: %t", channelID, result)
-
 	return result
 }
 
