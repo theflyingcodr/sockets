@@ -487,7 +487,7 @@ func (s *SocketServer) BroadcastDirect(clientID string, msg *sockets.Message) {
 
 // HasChannel will check to see if the server has a channel connection established.
 func (s *SocketServer) HasChannel(channelID string) bool {
-	log.Info().Msgf("checking if channel %s exists", channelID)
+	log.Debug().Msgf("checking if channel %s exists", channelID)
 	exists := make(chan bool)
 	defer close(exists)
 
@@ -497,7 +497,7 @@ func (s *SocketServer) HasChannel(channelID string) bool {
 	}
 
 	result := <-exists
-	log.Info().Msgf("channel %s exists: %t", channelID, result)
+	log.Debug().Msgf("channel %s exists: %t", channelID, result)
 	return result
 }
 
