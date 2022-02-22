@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 // common headers.
@@ -221,8 +222,12 @@ type ErrorMessage struct {
 // There is a default sockets.ErrorDetail struct available, or you can define your own.
 func (m *Message) ToError(err interface{}) *ErrorMessage {
 	var bb []byte
+	var mErr error
 	if !isNil(err) {
-		bb, _ = json.Marshal(err)
+		bb, mErr = json.Marshal(err)
+		if mErr != nil {
+			log.Error().Err(mErr)
+		}
 	}
 	e := &ErrorMessage{
 		CorrelationID: m.CorrelationID,
