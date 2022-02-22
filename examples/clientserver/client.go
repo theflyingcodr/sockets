@@ -37,7 +37,7 @@ func SetupClient() *client.Client {
 	})
 
 	for i := 0; i < 2000; i++ {
-		if err := c.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h); err != nil {
+		if err := c.JoinChannel(u.String(), fmt.Sprintf("test-channel-%d", i), h, nil); err != nil {
 			log.Fatal().Err(err).Msg("CLIENT failed to join channel")
 		}
 		go func(id int) {

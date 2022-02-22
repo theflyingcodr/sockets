@@ -37,7 +37,7 @@ func setupClient() *sockets2.Client {
 		return msg.NoContent()
 	})
 
-	if err := client.JoinChannel(u.String(), "test-channel", h); err != nil {
+	if err := client.JoinChannel(u.String(), "test-channel", h, nil); err != nil {
 		log.Fatal().Err(err).Msg("CLIENT failed to join channel")
 	}
 	go func() {

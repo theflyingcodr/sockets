@@ -18,7 +18,7 @@ const (
 // Client can be used to implement a client which will send and listen
 // to messages on channels.
 type Client interface {
-	JoinChannel(host, channelID string, headers http.Header) error
+	JoinChannel(host, channelID string, headers http.Header, params map[string]string) error
 	LeaveChannel(channelID string, headers http.Header)
 	RegisterListener(msgType string, fn HandlerFunc)
 }
