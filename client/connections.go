@@ -128,7 +128,9 @@ func (c *Client) reconnect(url string) (*websocket.Conn, bool) {
 			}
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		return ws, true
 	}
 }
