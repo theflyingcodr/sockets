@@ -6,11 +6,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type ChannelCheck struct {
-	ID     string
-	Exists chan bool
-}
-
 // Write writes a message with the given message type and payload.
 func Write(ws *websocket.Conn, timeout time.Duration, mt int, payload []byte) error {
 	_ = ws.SetWriteDeadline(time.Now().Add(timeout))
@@ -21,4 +16,10 @@ func Write(ws *websocket.Conn, timeout time.Duration, mt int, payload []byte) er
 func WriteJSON(ws *websocket.Conn, timeout time.Duration, payload interface{}) error {
 	_ = ws.SetWriteDeadline(time.Now().Add(timeout))
 	return ws.WriteJSON(payload)
+}
+
+// ChannelCheck for sending channel check messages.
+type ChannelCheck struct {
+	ID     string
+	Exists chan bool
 }

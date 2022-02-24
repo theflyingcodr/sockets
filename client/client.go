@@ -284,12 +284,12 @@ func (c *Client) LeaveChannel(channelID string, headers http.Header) {
 }
 
 // HasChannel will check to see if a client is conencted to a channel.
-func (s *Client) HasChannel(channelID string) bool {
+func (c *Client) HasChannel(channelID string) bool {
 	log.Debug().Msgf("checking if channel %s exists", channelID)
 	exists := make(chan bool)
 	defer close(exists)
 
-	s.channelChecker <- internal.ChannelCheck{
+	c.channelChecker <- internal.ChannelCheck{
 		ID:     channelID,
 		Exists: exists,
 	}
