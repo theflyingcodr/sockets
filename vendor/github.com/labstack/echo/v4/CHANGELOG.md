@@ -1,5 +1,31 @@
 # Changelog
 
+## v4.9.1 - 2022-10-12
+
+**Fixes**
+
+* Fix logger panicing (when template is set to empty) by bumping dependency version [#2295](https://github.com/labstack/echo/issues/2295)
+
+**Enhancements**
+
+* Improve CORS documentation [#2272](https://github.com/labstack/echo/pull/2272)
+* Update readme about supported Go versions [#2291](https://github.com/labstack/echo/pull/2291)
+* Tests: improve error handling on closing body [#2254](https://github.com/labstack/echo/pull/2254)
+* Tests: refactor some of the assertions in tests [#2275](https://github.com/labstack/echo/pull/2275)
+* Tests: refactor assertions [#2301](https://github.com/labstack/echo/pull/2301)
+
+## v4.9.0 - 2022-09-04
+
+**Security**
+
+* Fix open redirect vulnerability in handlers serving static directories (e.Static, e.StaticFs, echo.StaticDirectoryHandler) [#2260](https://github.com/labstack/echo/pull/2260)
+
+**Enhancements**
+
+* Allow configuring ErrorHandler in CSRF middleware [#2257](https://github.com/labstack/echo/pull/2257)
+* Replace HTTP method constants in tests with stdlib constants [#2247](https://github.com/labstack/echo/pull/2247)
+
+
 ## v4.8.0 - 2022-08-10
 
 **Most notable things**
