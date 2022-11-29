@@ -1,3 +1,4 @@
+// Package internal contains some types and methods that should not be exposed outside of the repo.
 package internal
 
 import (

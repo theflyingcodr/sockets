@@ -1,3 +1,4 @@
+// Package server sets up and returns a socket server, used to host socket channels.
 package server
 
 import (

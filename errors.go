@@ -1,3 +1,4 @@
+// Package sockets contains errors.
 package sockets
 
 import "errors"

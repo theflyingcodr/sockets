@@ -32,7 +32,6 @@ func main() {
 
 	// add middleware, with panic going first
 	s.WithMiddleware(smw.PanicHandler, smw.Timeout(smw.NewTimeoutConfig()), smw.Metrics())
-
 	// this is our websocket endpoint, clients will hit this with the channelID they wish to connect to
 	e.GET("/ws/:channelID", clientserver.WsHandler(s))
 	go func() {

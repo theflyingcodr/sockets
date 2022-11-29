@@ -1,3 +1,5 @@
+// Package middleware contains methods that can be piped together to form a middleware chain
+// with each method being called when a new message is received.
 package middleware
 
 import (

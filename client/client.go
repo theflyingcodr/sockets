@@ -1,3 +1,4 @@
+// Package client sets up and returns a socket client used to connect to a socket server.
 package client
 
 import (
