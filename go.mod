@@ -3,7 +3,7 @@ module github.com/theflyingcodr/sockets
 go 1.19
 
 require (
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.5.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/labstack/echo/v4 v4.9.0
 	github.com/pkg/errors v0.9.1
