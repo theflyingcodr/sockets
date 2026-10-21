@@ -1,13 +1,15 @@
+// Package client sets up and returns a socket client used to connect to a socket server.
 package client
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
@@ -20,20 +22,19 @@ type opts struct {
 	reconnectTimeout  time.Duration
 	writeTimeout      time.Duration
 	pongWait          time.Duration
-	pingPeriod        int
 	maxMessageBytes   int64
 }
 
 func defaultOpts() *opts {
-	return &opts{
+	o := &opts{
 		reconnect:         false,
 		reconnectAttempts: 3,
 		reconnectTimeout:  30 * time.Second,
 		writeTimeout:      2 * time.Second,
 		pongWait:          60 * time.Second,
-		pingPeriod:        int((60 * time.Second * 9) / 10),
 		maxMessageBytes:   512,
 	}
+	return o
 }
 
 // OptFunc defines a functional option to pass to the client at setup time.
@@ -93,14 +94,6 @@ func WithPongTimeout(t time.Duration) OptFunc {
 	}
 }
 
-// WithPingPeriod will define the break between pings to the server.
-// This should always be less than PongTimeout.
-func WithPingPeriod(i int) OptFunc {
-	return func(c *opts) {
-		c.pingPeriod = i
-	}
-}
-
 // WithMaxMessageSize defines the maximum message size in bytes that
 // the client will accept.
 // Default is 512 bytes.
@@ -117,12 +110,14 @@ type Client struct {
 	listeners        map[string]sockets.HandlerFunc
 	middleware       []sockets.MiddlewareFunc
 	errHandler       sockets.ClientErrorHandlerFunc
+	serverErrHandler sockets.ClientErrorMsgHandlerFunc
 	close            chan struct{}
 	done             chan struct{}
 	sender           chan sendMsg
 	channelJoin      chan *connection
 	channelLeave     chan string
 	channelReconnect chan reconnectChannel
+	channelChecker   chan internal.ChannelCheck
 	join             chan joinSuccess
 	opts             *opts
 	sync.RWMutex
@@ -146,17 +141,22 @@ func New(opts ...OptFunc) *Client {
 		listeners:        make(map[string]sockets.HandlerFunc),
 		middleware:       make([]sockets.MiddlewareFunc, 0),
 		errHandler:       defaultErrorHandler,
+		serverErrHandler: defaultErrorMsgHandler,
+
 		close:            make(chan struct{}, 1),
 		done:             make(chan struct{}, 1),
 		sender:           make(chan sendMsg, 256),
 		channelJoin:      make(chan *connection, 1),
 		channelLeave:     make(chan string, 1),
 		channelReconnect: make(chan reconnectChannel, 1),
+		channelChecker:   make(chan internal.ChannelCheck, 256),
 		join:             make(chan joinSuccess, 1),
 		RWMutex:          sync.RWMutex{},
 		opts:             o,
 	}
 	cli.RegisterListener(sockets.MessageJoinSuccess, cli.joinSuccess)
+	cli.RegisterListener(sockets.MessageChannelExpired, cli.channelExpired)
+	cli.RegisterListener(sockets.MessageChannelClosed, cli.channelClosed)
 	go cli.channelManager()
 	return cli
 }
@@ -168,6 +168,28 @@ func (c *Client) WithJoinRoomSuccessListener(l sockets.HandlerFunc) *Client {
 	c.Lock()
 	defer c.Unlock()
 	c.listeners[sockets.MessageJoinSuccess] = l
+	return c
+}
+
+// WithChannelExpiredListener will replace the default channel expired handler which simply
+// prints a debug message.
+//
+// By adding your own you can handle the channel expiry in a custom manner.
+func (c *Client) WithChannelExpiredListener(l sockets.HandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.listeners[sockets.MessageChannelExpired] = l
+	return c
+}
+
+// WithChannelClosedListener will replace the default channel closed handler which simply
+// prints a debug message. This is raised when the server explicitly closes a channel.
+//
+// By adding your own you can handle the channel close in a custom manner.
+func (c *Client) WithChannelClosedListener(l sockets.HandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.listeners[sockets.MessageChannelExpired] = l
 	return c
 }
 
@@ -203,22 +225,43 @@ func (c *Client) WithErrorHandler(e sockets.ClientErrorHandlerFunc) *Client {
 	return c
 }
 
+// WithServerErrorHandler allows a user to overwrite the default server error handler.
+//
+// This handles ErrorMessage responses from a server in response to a client send.
+func (c *Client) WithServerErrorHandler(e sockets.ClientErrorMsgHandlerFunc) *Client {
+	c.Lock()
+	defer c.Unlock()
+	c.serverErrHandler = e
+	return c
+}
+
 // Close will ensure the client is gracefully shut down.
 func (c *Client) Close() {
 	log.Debug().Msg("closing socket client")
 	for _, conn := range c.conn {
 		conn.close()
 	}
-	log.Info().Msg("socket client closed")
+	log.Debug().Msg("socket client closed")
 }
 
 // JoinChannel will connect the client to the supplied host and channelID, returning an error if
 // it cannot connect.
 //
 // If you need to authenticate with the server or send meta, add header/s.
-func (c *Client) JoinChannel(host, channelID string, headers http.Header) error {
-	log.Info().Msgf("joining channel %s", channelID)
-	ws, resp, err := websocket.DefaultDialer.Dial(fmt.Sprintf("%s/%s", host, channelID), headers)
+func (c *Client) JoinChannel(host, channelID string, headers http.Header, params map[string]string) error {
+	log.Debug().Msgf("joining channel %s", channelID)
+	u, err := url.Parse(fmt.Sprintf("%s/%s", host, channelID))
+	if err != nil {
+		return errors.Wrap(err, "failed to parse channel url")
+	}
+	if params != nil {
+		q := u.Query()
+		for k, v := range params {
+			q.Add(k, v)
+		}
+		u.RawQuery = q.Encode()
+	}
+	ws, resp, err := websocket.DefaultDialer.Dial(u.String(), headers)
 	if err != nil {
 		return err
 	}
@@ -226,19 +269,35 @@ func (c *Client) JoinChannel(host, channelID string, headers http.Header) error 
 		_ = resp.Body.Close()
 	}()
 	c.channelJoin <- &connection{
-		url:       fmt.Sprintf("%s/%s", host, channelID),
+		url:       u.String(),
 		channelID: channelID,
 		ws:        ws,
 		closer:    make(chan bool),
 		done:      make(chan struct{}),
 	}
-	log.Info().Msgf("connected to channel %s", channelID)
+	log.Debug().Msgf("connected to channel %s", channelID)
 	return nil
 }
 
 // LeaveChannel will disconnect a client from a channel.
-func (c *Client) LeaveChannel(channelID string, headers http.Header) {
+func (c *Client) LeaveChannel(channelID string, _ http.Header) {
 	c.channelLeave <- channelID
+}
+
+// HasChannel will check to see if a client is connected to a channel.
+func (c *Client) HasChannel(channelID string) bool {
+	log.Debug().Msgf("checking if channel %s exists", channelID)
+	exists := make(chan bool)
+	defer close(exists)
+
+	c.channelChecker <- internal.ChannelCheck{
+		ID:     channelID,
+		Exists: exists,
+	}
+
+	result := <-exists
+	log.Debug().Msgf("channel %s exists: %t", channelID, result)
+	return result
 }
 
 func (c *Client) channelManager() {
@@ -290,6 +349,9 @@ func (c *Client) channelManager() {
 				continue
 			}
 			ch.ws = r.conn
+		case e := <-c.channelChecker:
+			_, ok := c.conn[e.ID]
+			e.Exists <- ok
 		}
 	}
 }
@@ -319,9 +381,8 @@ func (c *Client) Publish(req sockets.Request) error {
 }
 
 // RegisterListener will add a new listener to the client.
-func (c *Client) RegisterListener(msgType string, fn sockets.HandlerFunc) *Client {
+func (c *Client) RegisterListener(msgType string, fn sockets.HandlerFunc) {
 	c.Lock()
 	defer c.Unlock()
 	c.listeners[msgType] = fn
-	return c
 }

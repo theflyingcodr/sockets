@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/gorilla/websocket"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
@@ -17,7 +17,7 @@ var (
 )
 
 func wsHandler(svr *server.SocketServer) echo.HandlerFunc {
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err

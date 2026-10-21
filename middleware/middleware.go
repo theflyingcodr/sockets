@@ -23,7 +23,7 @@ type TimeoutConfig struct {
 	Timeout time.Duration
 }
 
-func defaultTimeoutSkipper(msg *sockets.Message) bool {
+func defaultTimeoutSkipper(*sockets.Message) bool {
 	return false
 }
 
@@ -83,7 +83,7 @@ func (l *LoggerConfig) AddSkipper(fn func(msg *sockets.Message) bool) {
 	l.Skipper = fn
 }
 
-func defaultLogSkipper(msg *sockets.Message) bool {
+func defaultLogSkipper(*sockets.Message) bool {
 	return false
 }
 

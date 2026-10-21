@@ -27,7 +27,7 @@ func newChannel(id string, expires time.Time) *channel {
 
 // expire will expire all connections in the channel and return a list of affected clientIDs.
 func (c *channel) expire() []string {
-	clients := make([]string, 0)
+	clients := make([]string, 0, len(c.conns))
 	fmt.Println("total cons", len(c.conns))
 	for clientID, conn := range c.conns {
 		fmt.Println("sending expired message")
@@ -43,7 +43,7 @@ func (c *channel) expire() []string {
 
 // close will close all connections in the channel and return a list of affected clientIDs.
 func (c *channel) close() []string {
-	clients := make([]string, 0)
+	clients := make([]string, 0, len(c.conns))
 	for clientID, conn := range c.conns {
 		_ = conn.ws.WriteJSON(sockets.NewMessage(sockets.MessageChannelExpired, clientID, c.id))
 		_ = conn.ws.Close()

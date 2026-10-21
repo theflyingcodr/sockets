@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -21,27 +21,27 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	e := echo.New()
-	e.HideBanner = true
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())
 
 	s := setupServer()
 	defer s.Close()
 	e.GET("/ws/:channelID", wsHandler(s))
+
+	// Cancelling ctx on interrupt makes Start shut the server down gracefully,
+	// waiting up to 10 seconds for in-flight requests.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	done := make(chan struct{})
 	go func() {
-		log.Err(e.Start(":1323")).Msg("closed echo")
+		defer close(done)
+		sc := echo.StartConfig{Address: ":1323", HideBanner: true, GracefulTimeout: 10 * time.Second}
+		if err := sc.Start(ctx, e); err != nil {
+			log.Err(err).Msg("closed echo")
+		}
 	}()
 	c := setupClient()
 	defer c.Close()
 
-	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
-	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-	<-quit
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
-		log.Err(err).Msg("shutdown echo")
-	}
+	<-done
 }

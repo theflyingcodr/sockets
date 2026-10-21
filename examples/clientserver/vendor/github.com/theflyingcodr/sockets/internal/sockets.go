@@ -1,3 +1,4 @@
+// Package internal contains some types and methods that should not be exposed outside of the repo.
 package internal
 
 import (
@@ -16,4 +17,10 @@ func Write(ws *websocket.Conn, timeout time.Duration, mt int, payload []byte) er
 func WriteJSON(ws *websocket.Conn, timeout time.Duration, payload interface{}) error {
 	_ = ws.SetWriteDeadline(time.Now().Add(timeout))
 	return ws.WriteJSON(payload)
+}
+
+// ChannelCheck for sending channel check messages.
+type ChannelCheck struct {
+	ID     string
+	Exists chan bool
 }

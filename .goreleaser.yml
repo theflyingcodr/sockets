@@ -1,9 +1,10 @@
 # Make sure to check the documentation at http://goreleaser.com
+version: 2
 # ---------------------------
 # GENERAL
 # ---------------------------
 snapshot:
-  name_template: "{{ .Tag }}"
+  version_template: "{{ .Tag }}"
 changelog:
   sort: asc
   filters:
@@ -14,21 +15,9 @@ changelog:
 # ---------------------------
 # BUILDER
 # ---------------------------
-build:
-  skip: true
-  env:
-    - CGO_ENABLED=0
-  goos:
-    - linux
-    - windows
-    - darwin
-archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
+# A library: nothing to build or archive, the release is the tag and changelog.
+builds:
+  - skip: true
 checksum:
   name_template: 'checksums.txt'
 # ---------------------------

@@ -1,24 +1,48 @@
 package sockets
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+)
+
+// common headers.
+const (
+	HeaderChannelExpiry = "X-Channel-Expires"
 )
 
 // Client can be used to implement a client which will send and listen
 // to messages on channels.
 type Client interface {
-	WithJoinRoomSuccessListener(l HandlerFunc) Client
-	WithMiddleware(mws ...MiddlewareFunc) Client
-	WithJoinRoomFailedListener(l HandlerFunc) Client
-	WithErrorHandler(e ClientErrorHandlerFunc) Client
-	Close()
-	JoinChannel(host, channelID string, headers http.Header) error
+	JoinChannel(host, channelID string, headers http.Header, params map[string]string) error
 	LeaveChannel(channelID string, headers http.Header)
-	RegisterListener(msgType string, fn HandlerFunc) Client
+	RegisterListener(msgType string, fn HandlerFunc)
+}
+
+// ClientPublisher can be implemented to allow a client to send messages
+// to a connected server and channel.
+type ClientPublisher interface {
+	Publish(req Request)
+}
+
+// ServerDirectBroadcaster is used to send a message from a server directly to a client.
+type ServerDirectBroadcaster interface {
+	BroadcastDirect(clientID string, msg *Message)
+}
+
+// ServerChannelBroadcaster is used to send a message from a server to all clients connected to a channel.
+type ServerChannelBroadcaster interface {
+	// Broadcast will send a message to all connected peers on a channel.
+	// To handle these messages you should register a handler using server.RegisterChannelHandler.
+	Broadcast(channelID string, msg *Message)
+	// BroadcastAwait will broadcast a message to all peers but handle only the first one and return
+	// it to the caller. This is a blocking call.
+	BroadcastAwait(ctx context.Context, channelID string, msg *Message) (*Message, error)
 }
 
 // Request is used to send a message to a channel with a specific key.
@@ -148,7 +172,7 @@ func NewMessage(msgType, clientID, channelID string) *Message {
 }
 
 // Bind will map the body to v.
-func (m Message) Bind(v interface{}) error {
+func (m *Message) Bind(v interface{}) error {
 	if m.Body == nil {
 		return nil
 	}
@@ -158,6 +182,9 @@ func (m Message) Bind(v interface{}) error {
 
 // WithBody will serialise the value v into the message body.
 func (m *Message) WithBody(v interface{}) error {
+	if isNil(v) {
+		return nil
+	}
 	bb, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -171,16 +198,6 @@ func (m *Message) NoContent() (*Message, error) {
 	return nil, nil
 }
 
-// DirectBroadcaster is used to send a message directly to a client.
-type DirectBroadcaster interface {
-	BroadcastDirect(clientID string, msg *Message)
-}
-
-// ChannelBroadcaster is used to send a message to all clients connected to a channel.
-type ChannelBroadcaster interface {
-	Broadcast(channelID string, msg *Message)
-}
-
 // ErrorMessage is a message type returned on error, it contains
 // a copy of the original key and body but will have a key of "error"
 // allowing this to be checked for in error handlers.
@@ -192,7 +209,7 @@ type ErrorMessage struct {
 	UserID        string          `json:"userId"`
 	Key           string          `json:"type"`
 	OriginKey     string          `json:"originType"`
-	OrginBody     json.RawMessage `json:"originBody"`
+	OriginBody    json.RawMessage `json:"originBody"`
 	ErrorBody     json.RawMessage `json:"errorBody"`
 	ChannelID     string          `json:"channelId"`
 	ClientID      string          `json:"clientId"`
@@ -204,14 +221,21 @@ type ErrorMessage struct {
 //
 // There is a default sockets.ErrorDetail struct available, or you can define your own.
 func (m *Message) ToError(err interface{}) *ErrorMessage {
-	bb, _ := json.Marshal(err)
+	var bb []byte
+	var mErr error
+	if !isNil(err) {
+		bb, mErr = json.Marshal(err)
+		if mErr != nil {
+			log.Error().Err(mErr).Msg("failed to marshal error detail")
+		}
+	}
 	e := &ErrorMessage{
 		CorrelationID: m.CorrelationID,
 		AppID:         m.AppID,
 		UserID:        m.UserID,
 		Key:           MessageError,
 		OriginKey:     m.key,
-		OrginBody:     m.Body,
+		OriginBody:    m.Body,
 		ErrorBody:     bb,
 		ChannelID:     m.channelID,
 		ClientID:      m.ClientID,
@@ -232,8 +256,21 @@ func (e *ErrorMessage) Bind(v interface{}) error {
 // BindOriginBody can be used to decode the body for the original message that triggered
 // this error, useful for replaying.
 func (e *ErrorMessage) BindOriginBody(v interface{}) error {
-	if e.OrginBody == nil {
+	if e.OriginBody == nil {
 		return nil
 	}
-	return json.Unmarshal(e.OrginBody, &v)
+	return json.Unmarshal(e.OriginBody, &v)
+}
+
+// isNil safely checks an interface for nil.
+func isNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+	switch reflect.TypeOf(i).Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(i).IsNil()
+	default:
+		return false
+	}
 }

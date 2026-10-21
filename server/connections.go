@@ -32,7 +32,7 @@ func (c *connection) writer() {
 				return
 			}
 			if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, msg); err != nil {
-				log.Err(err)
+				log.Err(err).Msgf("write to client %s failed", c.clientID)
 				return
 			}
 			n := len(c.send)
@@ -43,16 +43,16 @@ func (c *connection) writer() {
 					log.Debug().Msgf("closing connection for clientID %s", c.clientID)
 					return
 				}
-				go func(m interface{}) {
-					if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, m); err != nil {
-						log.Err(err)
-						return
-					}
-				}(msg)
+				// Write serially: a gorilla conn panics on concurrent writes, so
+				// draining the buffer with a goroutine per message crashed the process.
+				if err := internal.WriteJSON(c.ws, c.opts.writeTimeout, msg); err != nil {
+					log.Err(err).Msgf("write to client %s failed", c.clientID)
+					return
+				}
 			}
 		case <-ticker.C:
 			if err := internal.Write(c.ws, c.opts.writeTimeout, websocket.PingMessage, []byte{}); err != nil {
-				log.Err(err)
+				log.Err(err).Msgf("ping to client %s failed", c.clientID)
 				return
 			}
 		}

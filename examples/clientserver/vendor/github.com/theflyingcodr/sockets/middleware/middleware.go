@@ -1,3 +1,5 @@
+// Package middleware contains methods that can be piped together to form a middleware chain
+// with each method being called when a new message is received.
 package middleware
 
 import (
@@ -21,7 +23,7 @@ type TimeoutConfig struct {
 	Timeout time.Duration
 }
 
-func defaultTimeoutSkipper(msg *sockets.Message) bool {
+func defaultTimeoutSkipper(*sockets.Message) bool {
 	return false
 }
 
@@ -81,7 +83,7 @@ func (l *LoggerConfig) AddSkipper(fn func(msg *sockets.Message) bool) {
 	l.Skipper = fn
 }
 
-func defaultLogSkipper(msg *sockets.Message) bool {
+func defaultLogSkipper(*sockets.Message) bool {
 	return false
 }
 
@@ -136,6 +138,10 @@ func ExecMiddlewareChain(f sockets.HandlerFunc, m []sockets.MiddlewareFunc) sock
 	return m[0](ExecMiddlewareChain(f, m[1:]))
 }
 
+// Metrics contains basic example metrics that can be captured
+// and pulled into prometheus.
+//
+// You would most likely implement your own version of this.
 func Metrics() sockets.MiddlewareFunc {
 	opsProcessed := promauto.NewCounter(prometheus.CounterOpts{
 		Name: "received_messages",

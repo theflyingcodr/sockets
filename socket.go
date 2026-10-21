@@ -172,7 +172,7 @@ func NewMessage(msgType, clientID, channelID string) *Message {
 }
 
 // Bind will map the body to v.
-func (m Message) Bind(v interface{}) error {
+func (m *Message) Bind(v interface{}) error {
 	if m.Body == nil {
 		return nil
 	}
@@ -226,7 +226,7 @@ func (m *Message) ToError(err interface{}) *ErrorMessage {
 	if !isNil(err) {
 		bb, mErr = json.Marshal(err)
 		if mErr != nil {
-			log.Error().Err(mErr)
+			log.Error().Err(mErr).Msg("failed to marshal error detail")
 		}
 	}
 	e := &ErrorMessage{
@@ -268,7 +268,7 @@ func isNil(i interface{}) bool {
 		return true
 	}
 	switch reflect.TypeOf(i).Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+	case reflect.Pointer, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
 		return reflect.ValueOf(i).IsNil()
 	default:
 		return false
