@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/labstack/echo-contrib/prometheus"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo-contrib/v5/echoprometheus"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -21,11 +21,10 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	e := echo.New()
-	e.HideBanner = true
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())
-	p := prometheus.NewPrometheus("echo", nil)
-	p.Use(e)
+	e.Use(echoprometheus.NewMiddleware("echo"))
+	e.GET("/metrics", echoprometheus.NewHandler())
 	// setup the socket server
 	s := clientserver.SetupServer()
 	defer s.Close()
@@ -34,18 +33,13 @@ func main() {
 	s.WithMiddleware(smw.PanicHandler, smw.Timeout(smw.NewTimeoutConfig()), smw.Metrics())
 	// this is our websocket endpoint, clients will hit this with the channelID they wish to connect to
 	e.GET("/ws/:channelID", clientserver.WsHandler(s))
-	go func() {
-		log.Err(e.Start(":9323")).Msg("closed echo")
-	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
-	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-	<-quit
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
-		log.Err(err).Msg("shutdown echo")
+	// Cancelling ctx on interrupt makes Start shut the server down gracefully,
+	// waiting up to 10 seconds for in-flight requests.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	sc := echo.StartConfig{Address: ":9323", HideBanner: true, GracefulTimeout: 10 * time.Second}
+	if err := sc.Start(ctx, e); err != nil {
+		log.Err(err).Msg("closed echo")
 	}
 }

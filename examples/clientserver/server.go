@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
@@ -22,7 +22,7 @@ var (
 
 func WsHandler(svr *server.SocketServer) echo.HandlerFunc {
 
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
@@ -37,7 +37,7 @@ func WsHandler(svr *server.SocketServer) echo.HandlerFunc {
 }
 
 func SetupServer() *server.SocketServer {
-	s := server.NewSocketServer().
+	s := server.New().
 		RegisterChannelHandler("test", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 			log.Info().Msg("SERVER received new test message")
 			var req TestMessage

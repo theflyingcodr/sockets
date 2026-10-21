@@ -31,7 +31,8 @@ func SetupClient() *client.Client {
 			Int("totalChannels", req.TotalConnections).
 			Msg("CLIENT info received")
 		return nil, nil
-	}).RegisterListener("test.resp", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+	})
+	c.RegisterListener("test.resp", func(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
 		log.Info().Msgf("CLIENT received: %+v", msg)
 		return msg.NoContent()
 	})

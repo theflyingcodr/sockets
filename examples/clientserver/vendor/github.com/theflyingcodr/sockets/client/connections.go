@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 
 	"github.com/theflyingcodr/sockets"
@@ -23,7 +24,7 @@ type connection struct {
 }
 
 func (c *connection) close() {
-	log.Debug().Msgf("closing connection %s", c.channelID)
+	log.Debug().Msgf("closing connection %s", c.clientID)
 	if c.closing {
 		return
 	}
@@ -32,47 +33,45 @@ func (c *connection) close() {
 	<-c.done
 }
 
-func (c *Client) listen(client *connection) {
-	channelID := client.channelID
-	url := client.url
+func (c *Client) listen(conn *connection) {
+	channelID := conn.channelID
+	url := conn.url
 
 	go func() {
-		defer client.close()
+		defer conn.close()
 		for {
 			var body map[string]interface{}
-			msgType, bb, err := client.ws.ReadMessage()
-			if msgType == websocket.CloseMessage {
-				log.Info().
-					Msgf("close message received for channelID '%s', closing connection", channelID)
-				return
-			}
+			_, bb, err := conn.ws.ReadMessage()
 			if err != nil {
-				log.Err(err).Msg("error when reading message")
-
-				if msgType == -1 {
-					log.Info().Msg("lost connection to server, retrying")
-					ws, ok := c.reconnect(client.url)
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
+					log.Error().Err(errors.WithStack(err)).Msg("received unknown read error")
+					ws, ok := c.reconnect(conn.url)
 					if !ok {
 						log.Error().
-							Msgf("failed to re-connect to %s after %d attempts, exiting client", url, c.opts.reconnectAttempts)
-						c.channelLeave <- client.channelID
+							Msgf("failed to re-connect to %s after %d attempts, exiting conn", url, c.opts.reconnectAttempts)
+						c.LeaveChannel(channelID, nil)
 						return
 					}
-					client.ws = ws
-					log.Info().Msg("reconnected to server")
+					conn.ws = ws
+					log.Debug().Msg("reconnected to server")
+					continue
 				}
-				continue
+				log.Debug().
+					Msgf("close message received for channelID '%s', closing connection", channelID)
+				c.LeaveChannel(channelID, nil)
+				return
 			}
+
 			if err := json.Unmarshal(bb, &body); err != nil {
 				log.Err(err).Msg("error when reading message")
 				continue
 			}
 			if body["type"] == sockets.MessageError {
-				var errMsg *sockets.ErrorMessage
+				var errMsg sockets.ErrorMessage
 				if err := json.Unmarshal(bb, &errMsg); err != nil {
 					continue
 				}
-				c.errHandler(errMsg)
+				c.serverErrHandler(errMsg)
 				continue
 			}
 			var msg *sockets.Message
@@ -88,28 +87,32 @@ func (c *Client) listen(client *connection) {
 				Msg("new message received")
 			fn := c.listener(msg.Key())
 			if fn == nil {
-				log.Info().Msgf("no handler found for message type '%s'", msg.Key())
+				log.Warn().Msgf("no handler found for message type '%s'", msg.Key())
 				continue
 			}
 			// exec middleware and then handler.
 			resp, err := middleware.ExecMiddlewareChain(fn, c.middleware)(ctx, msg)
 			if err != nil {
-				c.errHandler(resp.ToError(nil))
+				c.errHandler(errors.WithStack(err), msg)
 				continue
 			}
 			if resp != nil {
+				log.Debug().
+					RawJSON("message body", resp.Body).
+					Str("key", resp.Key()).
+					Msg("sending message")
 				c.sender <- sendMsg{
 					m: resp,
 				}
 			}
 		}
 	}()
-	<-client.closer
-	log.Debug().Msgf("closing channelID %s", channelID)
-	if err := client.ws.Close(); err != nil {
+	<-conn.closer
+	log.Debug().Msgf("closing channelID %s connection", channelID)
+	if err := conn.ws.Close(); err != nil {
 		log.Err(err).Msgf("error when closing channelID '%s' socket connection", channelID)
 	}
-	close(client.done)
+	close(conn.done)
 }
 
 func (c *Client) reconnect(url string) (*websocket.Conn, bool) {
@@ -117,7 +120,7 @@ func (c *Client) reconnect(url string) (*websocket.Conn, bool) {
 	for {
 		i++
 		time.Sleep(c.opts.reconnectTimeout)
-		ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+		ws, resp, err := websocket.DefaultDialer.Dial(url, nil)
 		if err != nil {
 			log.Err(err).Msgf("failed to reconnect to '%s' after '%d' attempts", url, i)
 			if c.opts.reconnectAttempts != -1 && i > c.opts.reconnectAttempts {
@@ -125,6 +128,9 @@ func (c *Client) reconnect(url string) (*websocket.Conn, bool) {
 			}
 			continue
 		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		return ws, true
 	}
 }
