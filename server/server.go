@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +21,7 @@ type opts struct {
 	pingPeriod      time.Duration
 	maxMessageBytes int64
 	channelTimeout  time.Duration
+	idleTimeout     time.Duration
 }
 
 func defaultOpts() *opts {
@@ -30,6 +30,7 @@ func defaultOpts() *opts {
 		pongWait:        60 * time.Second,
 		maxMessageBytes: 512,
 		channelTimeout:  time.Duration(-1), // no timeout
+		idleTimeout:     0,                 // no idle timeout
 	}
 	o.pingPeriod = (o.pongWait * 9) / 10
 	return o
@@ -81,6 +82,18 @@ func WithMaxMessageSize(s int64) OptFunc {
 func WithChannelTimeout(t time.Duration) OptFunc {
 	return func(c *opts) {
 		c.channelTimeout = t
+	}
+}
+
+// WithIdleTimeout closes a connection that goes d without receiving a message
+// from its client. It is reset on every inbound message and is independent of
+// the ping/pong keepalive, so it measures client inactivity, not a dead socket.
+//
+// Note this closes receive-only clients too, since they send nothing. Default
+// is 0, which disables it.
+func WithIdleTimeout(d time.Duration) OptFunc {
+	return func(c *opts) {
+		c.idleTimeout = d
 	}
 }
 
@@ -148,10 +161,10 @@ func New(opts ...OptFunc) *SocketServer {
 		close:              make(chan struct{}, 1),
 		done:               make(chan struct{}, 1),
 		opts:               defaults,
-		onRegister:         func(clientID, channelID string) {},
-		onDeRegister:       func(clientID, channelID string) {},
-		onChannelClose:     func(channelID string) {},
-		onChannelCreate:    func(channelID string) {},
+		onRegister:         func(string, string) {},
+		onDeRegister:       func(string, string) {},
+		onChannelClose:     func(string) {},
+		onChannelCreate:    func(string) {},
 	}
 	go s.channelManager()
 	return s
@@ -209,57 +222,16 @@ func (s *SocketServer) channelManager() {
 			u.registered <- nil
 			s.onRegister(u.clientID, u.channelID)
 		case m := <-s.channelSender:
-			log.Debug().Msg("running channel sender")
 			ch := s.channels[m.ID]
-			log.Debug().Msg("looked up channel")
 			if ch == nil {
-				log.Debug().Msgf("channel %s is nil", m.ID)
 				continue
 			}
-			log.Debug().Msg("channel not nil")
 			for _, sub := range ch.conns {
-				sub.send <- m.msg
+				s.trySend(sub, m.msg)
 			}
-			log.Debug().Msg("sent to all connections")
-			// clear buffer
-			n := len(s.channelSender)
-			log.Debug().Msgf("buffer to clear %d", n)
-			for i := 0; i < n; i++ {
-				send, ok := <-s.channelSender
-				if !ok {
-					log.Debug().Msgf("channel sender %s is empty", m.ID)
-					continue
-				}
-				ch := s.channels[send.ID]
-				if ch == nil {
-					continue
-				}
-				wg := sync.WaitGroup{}
-				for _, sub := range ch.conns {
-					wg.Add(1)
-					go func(s *connection, m interface{}) {
-						s.send <- m
-						wg.Done()
-					}(sub, send.msg)
-				}
-				wg.Wait()
-			}
-			log.Debug().Msgf("cleared channel buffers %d", len(s.channelSender))
 		case m := <-s.directSender:
-			ch := s.clientConnections[m.ID]
-			if ch == nil {
-				continue
-			}
-			ch.send <- m.msg
-			// clear buffer
-			n := len(s.directSender)
-			for i := 0; i < n; i++ {
-				send := <-s.directSender
-				ch := s.clientConnections[send.ID]
-				if ch == nil {
-					continue
-				}
-				go func() { ch.send <- m.msg }()
+			if sub := s.clientConnections[m.ID]; sub != nil {
+				s.trySend(sub, m.msg)
 			}
 		case c := <-s.channelChecker:
 			_, ok := s.channels[c.ID]
@@ -296,6 +268,19 @@ func (s *SocketServer) channelManager() {
 			delete(s.channels, channelID)
 			s.onChannelClose(channelID)
 		}
+	}
+}
+
+// trySend queues msg for a client without blocking the manager goroutine.
+// A client whose send buffer is full is too slow to keep up, so we close it
+// rather than stall every other client; its reader then unregisters it through
+// the normal path.
+func (s *SocketServer) trySend(c *connection, msg interface{}) {
+	select {
+	case c.send <- msg:
+	default:
+		log.Warn().Msgf("client %s send buffer full, dropping slow connection", c.clientID)
+		_ = c.ws.Close()
 	}
 }
 
@@ -373,6 +358,17 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 
 	log.Debug().Msgf("connection with clientID %s added, listening for messages", clientID)
 
+	// Close the connection after idleTimeout with no inbound message. Closing
+	// unblocks the ReadJSON below, which then exits the loop and unregisters.
+	var idle *time.Timer
+	if s.opts.idleTimeout > 0 {
+		idle = time.AfterFunc(s.opts.idleTimeout, func() {
+			log.Debug().Msgf("client %s idle for %s, closing", clientID, s.opts.idleTimeout)
+			_ = conn.Close()
+		})
+		defer idle.Stop()
+	}
+
 	for {
 		var m *sockets.Message
 		if err := conn.ReadJSON(&m); err != nil {
@@ -386,6 +382,9 @@ func (s *SocketServer) Listen(conn *websocket.Conn, channelID string) error {
 			break
 		}
 
+		if idle != nil {
+			idle.Reset(s.opts.idleTimeout)
+		}
 		m.ClientID = clientID
 		ctx := context.Background()
 		log.Debug().Msg("message received")
