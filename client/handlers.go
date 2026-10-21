@@ -47,7 +47,7 @@ func defaultErrorMsgHandler(errMsg sockets.ErrorMessage) {
 		Msg("server error received")
 }
 
-func (c *Client) joinSuccess(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+func (c *Client) joinSuccess(_ context.Context, msg *sockets.Message) (*sockets.Message, error) {
 	log.Debug().Msgf("joined channel %s success", msg.ChannelID())
 	c.join <- joinSuccess{
 		ChannelID: msg.ChannelID(),
@@ -56,13 +56,13 @@ func (c *Client) joinSuccess(ctx context.Context, msg *sockets.Message) (*socket
 	return msg.NoContent()
 }
 
-func (c *Client) channelExpired(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+func (c *Client) channelExpired(_ context.Context, msg *sockets.Message) (*sockets.Message, error) {
 	log.Debug().Msgf("channel expired %s", msg.ChannelID())
 	c.LeaveChannel(msg.ChannelID(), nil)
 	return msg.NoContent()
 }
 
-func (c *Client) channelClosed(ctx context.Context, msg *sockets.Message) (*sockets.Message, error) {
+func (c *Client) channelClosed(_ context.Context, msg *sockets.Message) (*sockets.Message, error) {
 	log.Debug().Msgf("channel closed %s", msg.ChannelID())
 	c.LeaveChannel(msg.ChannelID(), nil)
 	return msg.NoContent()

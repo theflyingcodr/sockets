@@ -24,10 +24,10 @@ run-unit-tests-cover:
 	open file:///$(shell pwd)/cover.html
 
 run-linter:
-	@golangci-lint run --deadline=480s --skip-dirs=vendor --tests
+	@golangci-lint run --timeout=8m
 
 install-linter:
-	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)bin v1.44.2
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.13.2
 
 go-doc-mac:
 	@open http://localhost:6060 && \

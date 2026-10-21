@@ -280,7 +280,7 @@ func (c *Client) JoinChannel(host, channelID string, headers http.Header, params
 }
 
 // LeaveChannel will disconnect a client from a channel.
-func (c *Client) LeaveChannel(channelID string, headers http.Header) {
+func (c *Client) LeaveChannel(channelID string, _ http.Header) {
 	c.channelLeave <- channelID
 }
 

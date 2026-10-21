@@ -8,21 +8,22 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMessage(t *testing.T) {
 	m := NewMessage("test", "clientID", "channelID")
-	assert.Equal(t, m.channelID, "channelID")
-	assert.Equal(t, m.key, "test")
-	assert.Equal(t, m.ClientID, "clientID")
+	assert.Equal(t, "channelID", m.channelID)
+	assert.Equal(t, "test", m.key)
+	assert.Equal(t, "clientID", m.ClientID)
 	assert.Empty(t, m.Body)
 	assert.Empty(t, m.Expiration)
-	assert.Equal(t, m.CorrelationID, "")
-	assert.Equal(t, m.Headers, http.Header{})
-	assert.Equal(t, m.UserID, "")
-	assert.Equal(t, m.AppID, "")
+	assert.Empty(t, m.CorrelationID)
+	assert.Equal(t, http.Header{}, m.Headers)
+	assert.Empty(t, m.UserID)
+	assert.Empty(t, m.AppID)
 	assert.NotEmpty(t, m.ID())
-	assert.NotEqual(t, m.Timestamp(), time.Time{})
+	assert.NotEqual(t, time.Time{}, m.Timestamp())
 }
 
 func TestMessageFrom(t *testing.T) {
@@ -64,12 +65,12 @@ func TestMessageFrom(t *testing.T) {
 			assert.Equal(t, m.ClientID, test.exp.ClientID)
 			assert.Empty(t, m.Body)
 			assert.Empty(t, m.Expiration)
-			assert.Equal(t, m.CorrelationID, "")
-			assert.Equal(t, m.Headers, http.Header{})
+			assert.Empty(t, m.CorrelationID)
+			assert.Equal(t, http.Header{}, m.Headers)
 			assert.Equal(t, m.UserID, test.exp.UserID)
 			assert.Equal(t, m.AppID, test.exp.AppID)
 			assert.NotEmpty(t, m.ID())
-			assert.NotEqual(t, m.Timestamp(), time.Time{})
+			assert.NotEqual(t, time.Time{}, m.Timestamp())
 		})
 	}
 }
@@ -112,11 +113,11 @@ func TestMessage_Bind(t *testing.T) {
 			var body Bodytest
 			err := test.msg.Bind(&body)
 			if test.err != nil {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.EqualError(t, err, test.err.Error())
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, test.ExpBody, body)
 		})
 	}
@@ -147,11 +148,11 @@ func TestMessage_WithBody(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := test.msg.WithBody(test.body)
 			if test.err != nil {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.EqualError(t, err, test.err.Error())
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.True(t, bytes.Equal(test.expBytes, test.msg.Body))
 		})
 	}
@@ -161,7 +162,7 @@ func TestMessage_NoContent(t *testing.T) {
 	t.Parallel()
 	msg, err := NewMessage("test", "clientID", "channelID").NoContent()
 	assert.Nil(t, msg)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 }
 
 func TestMessage_ToError(t *testing.T) {
@@ -285,11 +286,11 @@ func TestErrorMessage_Bind(t *testing.T) {
 			var body ErrorDetail
 			err := test.errMsg.Bind(&body)
 			if test.err != nil {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.EqualError(t, err, test.err.Error())
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, test.expDetail, body)
 		})
 	}
@@ -328,11 +329,11 @@ func TestErrorMessage_BindOriginBody(t *testing.T) {
 			var body Bodytest
 			err := test.errMsg.BindOriginBody(&body)
 			if test.err != nil {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.EqualError(t, err, test.err.Error())
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, test.expOriginBody, body)
 		})
 	}
