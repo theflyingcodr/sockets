@@ -28,6 +28,10 @@ type Group struct {
 // Important! Group middlewares are executed in case there was no exact route match as by default Group registers
 // `/*` NotFound routes for itself. If this kind of behavior is not needed, then create an Echo instance with the ` noAutoRegisterRoutes `
 // flag set to true. Example `echo.NewWithConfig(echo.Config{NoGroupAutoRegister404Routes: true})`.
+//
+// Group middleware runs before the middleware of the route that matched, including routes of nested groups. A group
+// middleware that answers requests itself, such as middleware.Static, is therefore not protected by guards on those
+// routes. Use Group#Static to serve files behind such guards.
 func (g *Group) Use(middleware ...MiddlewareFunc) {
 	g.middleware = append(g.middleware, middleware...)
 	if len(g.middleware) == 0 {
@@ -154,12 +158,11 @@ func (g *Group) Static(pathPrefix, fsRoot string, middleware ...MiddlewareFunc) 
 // prefix for directory path. This is necessary as `//go:embed assets/images` embeds files with paths
 // including `assets/images` as their prefix.
 func (g *Group) StaticFS(pathPrefix string, filesystem fs.FS, middleware ...MiddlewareFunc) RouteInfo {
-	return g.Add(
-		http.MethodGet,
-		pathPrefix+"*",
-		StaticDirectoryHandler(filesystem, !g.echo.enablePathUnescapingStaticFiles),
-		middleware...,
-	)
+	h := StaticDirectoryHandler(filesystem, !g.echo.enablePathUnescapingStaticFiles)
+	for _, p := range staticRoutePaths(g.echo.router, pathPrefix, g.prefix+pathPrefix) {
+		g.Add(http.MethodGet, p, h, middleware...)
+	}
+	return g.Add(http.MethodGet, staticWildcardPath(pathPrefix, g.prefix+pathPrefix), h, middleware...)
 }
 
 // FileFS implements `Echo#FileFS()` for sub-routes within the Group.
@@ -182,6 +185,17 @@ func (g *Group) File(path, file string, middleware ...MiddlewareFunc) RouteInfo 
 }
 
 // RouteNotFound implements `Echo#RouteNotFound()` for sub-routes within the Group.
+//
+// Important! When the group has middlewares, each `Group#Use()` call (re)registers catch-all NotFound routes for
+// the group prefix and prefix + `/*` with the group middlewares, unless the Echo-wide
+// `Config.NoGroupAutoRegister404Routes` is set. `Echo#Group()` and `Group#Group()` make this call when the new group
+// has own or inherited middlewares. For the same route path the last registered NotFound route wins, and it runs
+// only the group middlewares it was registered with: these catch-all routes replace handlers registered earlier for
+// those paths (by any group or by Echo), and a handler registered later replaces them. Register custom ones on this
+// group after the last such call for its prefix to keep its middlewares. On a Router that does not allow overwriting
+// routes this panics; use the router-wide `RouterConfig.NotFoundHandler` there, or set
+// `Config.NoGroupAutoRegister404Routes` and register both paths yourself on the group whose middlewares should run
+// for them.
 //
 // Example: `g.RouteNotFound("/*", func(c *echo.Context) error { return c.NoContent(http.StatusNotFound) })`
 func (g *Group) RouteNotFound(path string, h HandlerFunc, m ...MiddlewareFunc) RouteInfo {

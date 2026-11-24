@@ -452,6 +452,17 @@ func (e *Echo) Router() Router {
 	return e.router
 }
 
+// clearRepresentationHeaders removes headers that described the body the handler
+// meant to send and are wrong for the error body that replaces it. A middleware
+// that encodes the error body sets its own Content-Encoding. Content-Type and
+// validators such as ETag are kept because they can be meant for the error
+// response, for example a vendor media type or a 304.
+func clearRepresentationHeaders(h http.Header) {
+	h.Del(HeaderContentEncoding)
+	h.Del(HeaderContentLength)
+	h.Del(HeaderContentDisposition)
+}
+
 // DefaultHTTPErrorHandler creates new default HTTP error handler implementation. It sends a JSON response
 // with status code. `exposeError` parameter decides if returned message will contain also error message or not
 //
@@ -497,6 +508,8 @@ func DefaultHTTPErrorHandler(exposeError bool) HTTPErrorHandler {
 			}
 			result = msg
 		}
+
+		clearRepresentationHeaders(c.Response().Header())
 
 		var cErr error
 		if c.Request().Method == http.MethodHead { // Issue #608
@@ -627,14 +640,12 @@ func (e *Echo) Match(methods []string, path string, handler HandlerFunc, middlew
 }
 
 // Static registers a new route with path prefix to serve static files from the provided root directory.
+//
+// A pathPrefix without a trailing slash, such as "/assets", serves "/assets" (redirected to "/assets/") and the paths
+// below "/assets/", but not sibling paths such as "/assetsadmin/file".
 func (e *Echo) Static(pathPrefix, fsRoot string, middleware ...MiddlewareFunc) RouteInfo {
 	subFs := MustSubFS(e.Filesystem, fsRoot)
-	return e.Add(
-		http.MethodGet,
-		pathPrefix+"*",
-		StaticDirectoryHandler(subFs, !e.enablePathUnescapingStaticFiles),
-		middleware...,
-	)
+	return e.StaticFS(pathPrefix, subFs, middleware...)
 }
 
 // StaticFS registers a new route with path prefix to serve static files from the provided file system.
@@ -643,12 +654,37 @@ func (e *Echo) Static(pathPrefix, fsRoot string, middleware ...MiddlewareFunc) R
 // prefix for directory path. This is necessary as `//go:embed assets/images` embeds files with paths
 // including `assets/images` as their prefix.
 func (e *Echo) StaticFS(pathPrefix string, filesystem fs.FS, middleware ...MiddlewareFunc) RouteInfo {
-	return e.Add(
-		http.MethodGet,
-		pathPrefix+"*",
-		StaticDirectoryHandler(filesystem, !e.enablePathUnescapingStaticFiles),
-		middleware...,
-	)
+	h := StaticDirectoryHandler(filesystem, !e.enablePathUnescapingStaticFiles)
+	for _, p := range staticRoutePaths(e.router, pathPrefix, pathPrefix) {
+		e.Add(http.MethodGet, p, h, middleware...)
+	}
+	return e.Add(http.MethodGet, staticWildcardPath(pathPrefix, pathPrefix), h, middleware...)
+}
+
+// staticWildcardPath returns the route, relative to pathPrefix, that serves the files of a static directory mounted
+// at fullPrefix (pathPrefix plus any group prefix). A mount point without a trailing slash gets prefix+"/*" rather than
+// prefix+"*", so the router never matches a sibling path such as "/assetsadmin/file" for "/assets" and serves it from
+// "<root>/admin/file", around a guard on "/assets/admin" (GHSA-76qj-xf66-r429).
+func staticWildcardPath(pathPrefix, fullPrefix string) string {
+	if fullPrefix == "" || strings.HasSuffix(fullPrefix, "/") {
+		return pathPrefix + "*"
+	}
+	return pathPrefix + "/*"
+}
+
+// staticRoutePaths returns the extra route for a mount point without a trailing slash: the prefix itself, which
+// redirects to prefix+"/". It is left out when a GET or Any route is already registered there.
+func staticRoutePaths(router Router, pathPrefix, fullPrefix string) []string {
+	if fullPrefix == "" || strings.HasSuffix(fullPrefix, "/") {
+		return nil
+	}
+	full := normalizePathSlash(fullPrefix)
+	for _, r := range router.Routes() {
+		if normalizePathSlash(r.Path) == full && (r.Method == http.MethodGet || r.Method == RouteAny) {
+			return nil
+		}
+	}
+	return []string{pathPrefix}
 }
 
 // StaticDirectoryHandler creates handler function to serve files from provided file system
@@ -668,7 +704,7 @@ func StaticDirectoryHandler(fileSystem fs.FS, disablePathUnescaping bool) Handle
 		// The router matches the path as it was sent, but the file name is resolved with path.Clean(). A path with a
 		// ".", ".." or empty segment could therefore reach a file under a route that the router never matched, for
 		// example `/assets/../admin/private.txt` bypassing a guarded `/admin/*` route (GHSA-3pmx-cf9f-34xr).
-		if hasUncleanPath(c.Request()) || hasDotOrEmptySegment(p) {
+		if hasUncleanPath(c.Request()) || hasUncleanWildcardPath(p, c.Path()) {
 			return ErrNotFound
 		}
 		if !disablePathUnescaping { // when router is already unescaping we do not want to do is twice
@@ -677,7 +713,7 @@ func StaticDirectoryHandler(fileSystem fs.FS, disablePathUnescaping bool) Handle
 				return fmt.Errorf("failed to unescape path variable: %w", err)
 			}
 			p = tmpPath
-			if hasDotOrEmptySegment(p) { // unescaping can create new dot segments, e.g. `%2e%2e`
+			if hasUncleanWildcardPath(p, c.Path()) { // unescaping can create dot or empty segments
 				return ErrNotFound
 			}
 		}
@@ -1020,10 +1056,13 @@ func escapeControlChars(s string) string {
 	return b.String()
 }
 
-// hasDotOrEmptySegment reports whether URL path p has a ".", ".." or empty segment. A single leading and a single
-// trailing slash are allowed.
+// hasDotOrEmptySegment reports whether URL path p has a ".", ".." or empty segment, or a segment with a "." or ".."
+// part between backslashes (e.g. `..\x`). A single leading and a single trailing slash are allowed.
 // Keep in sync with the copy in middleware/static.go.
 func hasDotOrEmptySegment(p string) bool {
+	if strings.HasPrefix(p, "//") {
+		return true
+	}
 	p = strings.TrimPrefix(p, "/")
 	p = strings.TrimSuffix(p, "/")
 	if p == "" {
@@ -1033,16 +1072,32 @@ func hasDotOrEmptySegment(p string) bool {
 		if segment == "" || segment == "." || segment == ".." {
 			return true
 		}
+		// A backslash is a literal character in fs.FS names, but a filesystem that wrongly treats it as a separator
+		// (for example one built on filepath.Join on Windows) would resolve `..\` outside its root.
+		if strings.Contains(segment, `\`) {
+			for part := range strings.SplitSeq(segment, `\`) {
+				if part == "." || part == ".." {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }
 
-// hasUncleanPath reports whether the request path, in the form the router matches by default (the escaped path when it
-// differs from the default encoding), has a ".", ".." or empty segment. Encoded dots such as `%2E%2E` are not
-// segments here; they only act as `..` when path unescaping for static files is enabled.
+// hasUncleanPath checks both request path representations for ".", ".." or empty segments.
+// Router configuration and parameter unescaping can select either representation. Validating only RawPath would
+// miss an empty segment in URL.Path, allowing filesystem cleanup to resolve a path the router never matched.
 func hasUncleanPath(req *http.Request) bool {
-	if req.URL.RawPath != "" {
-		return hasDotOrEmptySegment(req.URL.RawPath)
+	if hasDotOrEmptySegment(req.URL.Path) {
+		return true
 	}
-	return hasDotOrEmptySegment(req.URL.Path)
+	return req.URL.RawPath != "" && hasDotOrEmptySegment(req.URL.RawPath)
+}
+
+// hasUncleanWildcardPath accounts for the slash already consumed by a route ending in /*.
+// A leading slash in that wildcard is an empty segment, while a prefix such as /assets* may legitimately capture /file.
+// Keep in sync with the copy in middleware/static.go.
+func hasUncleanWildcardPath(p, routePath string) bool {
+	return (strings.HasSuffix(routePath, "/*") && strings.HasPrefix(p, "/")) || hasDotOrEmptySegment(p)
 }
