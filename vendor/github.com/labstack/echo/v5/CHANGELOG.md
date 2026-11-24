@@ -1,5 +1,68 @@
 # Changelog
 
+## v5.4.7 - 2026-11-20
+
+**Security**
+
+* **Proxy middleware:** after routing, a `.` or `..` path segment (also encoded as `%2e`) was resolved by `Rewrite`/`RegexRewrite` or by the upstream into a path the router never matched. `GET /api/x/../admin/users` matched an unprotected `/api/*` proxy group but reached the upstream as `/admin/users`, skipping middleware such as authentication on `/api/admin`. After routing, Proxy now returns `400 Bad Request` for such paths, and rewrite targets in Proxy and the Rewrite middleware are applied literally instead of being resolved; a target with a dot segment or a leading `//` is rejected. Fixes [GHSA-w5j2-g3fc-pwr6](https://github.com/labstack/echo/security/advisories/GHSA-w5j2-g3fc-pwr6). Reported by AndyAnh174.
+* **Static files:** `Static`, `StaticFS`, `Group.Static` and `Group.StaticFS` with a prefix without a trailing slash registered `prefix*`, so `/assetsadmin/private.txt` was served from `<root>/admin/private.txt` for `e.Static("/assets", root)`, bypassing a guard on `/assets/admin`. They now register `prefix/*`, plus `prefix` for the redirect to `prefix/`. Fixes [GHSA-76qj-xf66-r429](https://github.com/labstack/echo/security/advisories/GHSA-76qj-xf66-r429). Reported by AndyAnh174.
+* **Static middleware on a group:** documented that `middleware.Static` attached with `Group#Use` is not protected by guards on routes inside the group or on nested groups, and that `Group#Static` should be used for files behind such guards. See [GHSA-5hp7-4fcm-57f9](https://github.com/labstack/echo/security/advisories/GHSA-5hp7-4fcm-57f9). Reported by AndyAnh174.
+
+**Fixes**
+
+* **Map binding:** binding path, query, header or form data into a map whose value type is not `string`, `[]string` or `any` returns an error instead of skipping the values, and named string types no longer panic. Fixes [#3235](https://github.com/labstack/echo/issues/3235) in [#3238](https://github.com/labstack/echo/pull/3238).
+* **Gzip middleware:** `Accept-Encoding` quality values are honored (`gzip;q=0` refuses gzip, `x-gzip` is accepted, substrings such as `notgzip` no longer match), and responses that already have a `Content-Encoding`, for example from a reverse proxy, are passed through instead of compressed twice. Also fixes `Write` reporting more bytes than given at the `MinLength` threshold, a truncated stream when a handler only flushes, and stale `Content-Length` and `Content-Encoding` headers. Fixes [#3232](https://github.com/labstack/echo/issues/3232) and [#2788](https://github.com/labstack/echo/issues/2788) in [#3239](https://github.com/labstack/echo/pull/3239).
+* **Response:** `Flush` commits an uncommitted response, `WriteHeader` passes 1xx informational codes (such as `103 Early Hints`) through without committing, and the built-in error handlers remove `Content-Encoding`, `Content-Length` and `Content-Disposition` before writing the error body. Fixes [#3240](https://github.com/labstack/echo/issues/3240), [#3241](https://github.com/labstack/echo/issues/3241) and [#3242](https://github.com/labstack/echo/issues/3242) in [#3243](https://github.com/labstack/echo/pull/3243).
+
+**Behavior changes**
+
+* After routing, Proxy rejects paths with `.`/`..` segments, and a Rewrite middleware attached after routing (on `Echo#Use`, a group or a route) applies its targets literally: relative targets and absolute URLs are rejected. `Echo#Pre` is unchanged.
+* `Static` and `StaticFS` return the `RouteInfo` of `prefix/*` instead of `prefix*`, and file names that only start with the prefix (for example `/img-logo.png` for `e.Static("/img-", dir)`) are no longer served.
+* Binding into an unsupported map type returns `400 Bad Request`.
+* A handler that sets `Content-Encoding` itself is assumed to have encoded the body; the Gzip middleware no longer compresses it.
+* Custom `HTTPErrorHandler`s still need to clear stale `Content-Encoding`, `Content-Length` and `Content-Disposition` themselves.
+
+No dependency or minimum Go-version changes.
+
+## v5.4.6 - 2026-11-14
+
+**Security**
+
+* **Proxy middleware:** a client could remove `X-Forwarded-Proto` from the upstream request by naming it in the `Connection` header, on plain HTTP requests and WebSocket upgrades. The proxy now sets `X-Forwarded-Proto` again after Go removes hop-by-hop headers, as it already does for `X-Real-IP`. Fixes [GHSA-h6x5-phvw-c55c](https://github.com/labstack/echo/security/advisories/GHSA-h6x5-phvw-c55c). Reported by zachary-satterly.
+
+**Behavior change**
+
+A custom balancer that replaces the request and sets its own `X-Forwarded-Proto` no longer reaches the upstream with that value; the proxy uses the scheme of the original request. A custom `ProxyConfig.Transport` can still set the header.
+
+No public API, dependency or minimum Go-version changes.
+
+## v5.4.5 - 2026-11-12
+
+**Security**
+
+* **Redirect middleware:** `HTTPSRedirect`, `HTTPSWWWRedirect`, `HTTPSNonWWWRedirect`, `WWWRedirect` and `NonWWWRedirect` now return `400 Bad Request` instead of redirecting when the host is empty, starts with `:` or `.`, contains `%`, or is empty after removing `www.`. Before this change, such hosts could produce an open redirect. The middleware no longer redirects `OPTIONS *` requests, maps `ws` and `wss` to `http` and `https` in redirect targets, and matches the `www.` prefix case-insensitively. Fixes [GHSA-3f6j-cw5h-qw9c](https://github.com/labstack/echo/security/advisories/GHSA-3f6j-cw5h-qw9c) ([#3217](https://github.com/labstack/echo/issues/3217)) in [#3220](https://github.com/labstack/echo/pull/3220).
+
+**Fixes**
+
+* **Trailing slash middleware:** `AddTrailingSlash` and `RemoveTrailingSlash` keep escaped path segments such as `%2F` in redirect and forward targets, so the request still matches its original route. Fixes [#3206](https://github.com/labstack/echo/issues/3206) in [#3221](https://github.com/labstack/echo/pull/3221).
+* **IPv6 zones:** `ExtractIPFromXFFHeader` and `ExtractIPFromRealIPHeader` trust zoned link-local proxy peers such as `[fe80::1%eth0]:8080`, with or without a port. Fixes [#3179](https://github.com/labstack/echo/issues/3179) in [#3222](https://github.com/labstack/echo/pull/3222).
+* **Header binding:** `BindHeaders` no longer panics on nil or empty header value slices. Fixes [#3169](https://github.com/labstack/echo/issues/3169) in [#3223](https://github.com/labstack/echo/pull/3223).
+
+**Behavior change**
+
+`Context.RealIP()` and `ExtractIPDirect()` now return a zoned link-local peer without its zone: `fe80::1`, not `fe80::1%eth0`. Update logs, allowlists or rate-limit keys that store the zoned form.
+
+No public API, dependency or minimum Go-version changes.
+
+## v5.4.4 - 2026-10-29
+
+**Proxy identity hardening**
+
+* Preserve the derived upstream `X-Real-IP` after hop-by-hop header stripping. A client can no longer remove that header with `Connection: X-Real-IP`, including duplicate or mixed-case nominations and WebSocket upgrades.
+* Capture the client identity once and preserve it across retries and balancer request replacement. Default and custom transports and extractors remain supported.
+* Add permanent regressions for HTTP forwarding, raw WebSocket upgrades, header nominations, and stateful extraction during request-swapping retries. Implementation: [#3200](https://github.com/labstack/echo/pull/3200).
+
+v5 already uses the connection peer by default. This release adds proxy header protection and does not change client-IP configuration or the affected ranges of the earlier default-IP CVEs. A missing identity header can affect an upstream that falls back to an untrusted source; no new client-IP migration, public API, dependency, or minimum Go-version change is introduced.
 
 ## v5.4.0 - 2026-09-27
 
